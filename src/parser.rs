@@ -45,6 +45,9 @@ pub enum Expr {
     List(Vec<Expr>),
     Dict(Vec<(String, Expr)>),
     Index { object: Box<Expr>, index: Box<Expr> },
+    And { left: Box<Expr>, right: Box<Expr> },
+    Or  { left: Box<Expr>, right: Box<Expr> },
+    Not (Box<Expr>),
 }
 
 struct Parser<'a> {
@@ -212,7 +215,7 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self) -> Result<Expr, String> {
         self.advance(); // '?'
-        let cond = self.parse_cmp()?;
+        let cond = self.parse_or()?;
         self.eat_sym(':')?;
         let then = self.parse_expr()?;
         self.eat_sym(':')?;
@@ -225,16 +228,42 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_pipe(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_cmp()?;
+        let mut left = self.parse_or()?;
         while self.peek() == &Token::Sym('|') {
             self.advance();
-            let right = self.parse_cmp()?;
-            left = Expr::Pipe {
-                left: Box::new(left),
-                right: Box::new(right),
-            };
+            let right = self.parse_or()?;
+            left = Expr::Pipe { left: Box::new(left), right: Box::new(right) };
         }
         Ok(left)
+    }
+
+    fn parse_or(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_and()?;
+        while self.peek() == &Token::Or {
+            self.advance();
+            let right = self.parse_and()?;
+            left = Expr::Or { left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_not()?;
+        while self.peek() == &Token::And {
+            self.advance();
+            let right = self.parse_not()?;
+            left = Expr::And { left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_not(&mut self) -> Result<Expr, String> {
+        if self.peek() == &Token::Not {
+            self.advance();
+            Ok(Expr::Not(Box::new(self.parse_not()?)))
+        } else {
+            self.parse_cmp()
+        }
     }
 
     fn parse_cmp(&mut self) -> Result<Expr, String> {

@@ -206,6 +206,21 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                 _ => Value::Nil,
             }
         }
+        Expr::And { left, right } => {
+            let l = eval_expr(env, left);
+            if !is_truthy(&l) { return Value::Number(0.0); }
+            let r = eval_expr(env, right);
+            Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
+        }
+        Expr::Or { left, right } => {
+            let l = eval_expr(env, left);
+            if is_truthy(&l) { return Value::Number(1.0); }
+            let r = eval_expr(env, right);
+            Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
+        }
+        Expr::Not(inner) => {
+            Value::Number(if is_truthy(&eval_expr(env, inner)) { 0.0 } else { 1.0 })
+        }
     }
 }
 

@@ -239,3 +239,60 @@ fn test_parse_inline_list_index() {
         }])
     );
 }
+
+#[test]
+fn test_parse_and() {
+    assert_eq!(
+        p("a and b"),
+        Expr::Block(vec![Expr::And {
+            left:  Box::new(Expr::Ident("a".into())),
+            right: Box::new(Expr::Ident("b".into())),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_or() {
+    assert_eq!(
+        p("a or b"),
+        Expr::Block(vec![Expr::Or {
+            left:  Box::new(Expr::Ident("a".into())),
+            right: Box::new(Expr::Ident("b".into())),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_not() {
+    assert_eq!(
+        p("not a"),
+        Expr::Block(vec![Expr::Not(Box::new(Expr::Ident("a".into())))])
+    );
+}
+
+#[test]
+fn test_parse_or_binds_looser_than_and() {
+    // a or b and c  →  a or (b and c)
+    assert_eq!(
+        p("a or b and c"),
+        Expr::Block(vec![Expr::Or {
+            left: Box::new(Expr::Ident("a".into())),
+            right: Box::new(Expr::And {
+                left:  Box::new(Expr::Ident("b".into())),
+                right: Box::new(Expr::Ident("c".into())),
+            }),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_not_binds_tighter_than_and() {
+    // not a and b  →  (not a) and b
+    assert_eq!(
+        p("not a and b"),
+        Expr::Block(vec![Expr::And {
+            left:  Box::new(Expr::Not(Box::new(Expr::Ident("a".into())))),
+            right: Box::new(Expr::Ident("b".into())),
+        }])
+    );
+}

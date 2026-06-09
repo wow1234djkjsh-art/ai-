@@ -170,3 +170,65 @@ fn test_dict_equality_order_independent() {
     // {a:1, b:2} should equal {b:2, a:1}
     assert_eq!(execute("{a:1,b:2}"), execute("{b:2,a:1}"));
 }
+
+#[test]
+fn test_logical_and_true() {
+    assert_eq!(execute("1>0 and 2>0"), Value::Number(1.0));
+}
+
+#[test]
+fn test_logical_and_false() {
+    assert_eq!(execute("1>0 and 0>1"), Value::Number(0.0));
+}
+
+#[test]
+fn test_logical_or_true() {
+    assert_eq!(execute("0>1 or 1>0"), Value::Number(1.0));
+}
+
+#[test]
+fn test_logical_or_false() {
+    assert_eq!(execute("0>1 or 0>1"), Value::Number(0.0));
+}
+
+#[test]
+fn test_logical_not_true() {
+    assert_eq!(execute("not 0>1"), Value::Number(1.0));
+}
+
+#[test]
+fn test_logical_not_false() {
+    assert_eq!(execute("not 1>0"), Value::Number(0.0));
+}
+
+#[test]
+fn test_short_circuit_and() {
+    assert_eq!(execute("0 and 1>0"), Value::Number(0.0));
+}
+
+#[test]
+fn test_short_circuit_or() {
+    assert_eq!(execute("1 or 0>1"), Value::Number(1.0));
+}
+
+#[test]
+fn test_logical_precedence_not_and() {
+    // not 0 and 1  →  (not 0) and 1  →  1 and 1  →  1
+    assert_eq!(execute("not 0 and 1"), Value::Number(1.0));
+}
+
+#[test]
+fn test_logical_precedence_or_and() {
+    // 0 or 1 and 1  →  0 or (1 and 1)  →  0 or 1  →  1
+    assert_eq!(execute("0 or 1 and 1"), Value::Number(1.0));
+}
+
+#[test]
+fn test_line_continuation() {
+    assert_eq!(execute("1\\\n+2"), Value::Number(3.0));
+}
+
+#[test]
+fn test_logical_in_conditional() {
+    assert_eq!(execute("x=5;?x>3 and x<10:1:0"), Value::Number(1.0));
+}
