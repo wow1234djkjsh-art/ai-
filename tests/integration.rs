@@ -1,6 +1,6 @@
-use c_dsl::builtins::{model, builtin_eval};
-use c_dsl::interpreter::{Environment, Value};
-use sha2::{Sha256, Digest};
+use c_dsl::builtins::{builtin_eval, model};
+use c_dsl::interpreter::{execute, Environment, Value};
+use sha2::{Digest, Sha256};
 
 /// Clear a specific cache entry so tests start with known state.
 fn clear_cache_for(model_id: &str, prompt: &str, format: &str) {
@@ -21,14 +21,20 @@ fn test_model_eval_pipeline() {
     let env = Environment::new();
     let prompt = "generate an expression";
 
-    let code_val = model(&env, vec![
-        Value::String("stub-model".to_string()),
-        Value::String(prompt.to_string()),
-        Value::String("code".to_string()),
-    ]);
+    let code_val = model(
+        &env,
+        vec![
+            Value::String("stub-model".to_string()),
+            Value::String(prompt.to_string()),
+            Value::String("code".to_string()),
+        ],
+    );
 
     // model must return a String (the C-DSL expression)
-    assert!(matches!(code_val, Value::String(_)), "model must return String");
+    assert!(
+        matches!(code_val, Value::String(_)),
+        "model must return String"
+    );
 
     // eval must produce a Number from that string
     let result = builtin_eval(&env, vec![code_val]);
@@ -47,11 +53,13 @@ fn test_model_caching_consistency() {
     // Clear any stale cache to guarantee cold-cache first call
     clear_cache_for(model_id, prompt, fmt);
 
-    let args = || vec![
-        Value::String(model_id.to_string()),
-        Value::String(prompt.to_string()),
-        Value::String(fmt.to_string()),
-    ];
+    let args = || {
+        vec![
+            Value::String(model_id.to_string()),
+            Value::String(prompt.to_string()),
+            Value::String(fmt.to_string()),
+        ]
+    };
 
     // First call: cache miss — computes and stores
     let first = model(&env, args());
@@ -97,4 +105,25 @@ fn test_model_force_bypasses_cache() {
     let expected = Value::String(prompt.len().to_string());
     assert_eq!(cached_val, expected, "cached value must match stub formula");
     assert_eq!(forced_val, expected, "forced value must match stub formula");
+}
+
+#[test]
+fn test_e2e_variable_conditional() {
+    assert_eq!(execute("x=5;?x>3:x*2:0"), Value::Number(10.0));
+}
+
+#[test]
+fn test_e2e_fn_def_and_call() {
+    assert_eq!(execute("fn add a,b=>a+b;add 3,4"), Value::Number(7.0));
+}
+
+#[test]
+fn test_e2e_pipe_chain() {
+    assert_eq!(execute("fn double x=>x*2;3|double|double"), Value::Number(12.0));
+}
+
+#[test]
+fn test_e2e_each() {
+    // each returns the last result
+    assert_eq!(execute("each 1,2,3:fn x=>x*2"), Value::Number(6.0));
 }
