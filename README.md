@@ -8,6 +8,12 @@ A minimal, token-efficient scripting language designed for AI integration.
 cargo build --release
 ```
 
+Development (no build step needed):
+
+```bash
+cargo run -- --run hello.cdsl
+```
+
 Run a script file:
 
 ```bash
