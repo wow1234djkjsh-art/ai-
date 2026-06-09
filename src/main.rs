@@ -29,8 +29,8 @@ fn main() {
 }
 
 fn repl() {
-    use std::io::{self, Write};
     use interpreter::{exec_in, Environment, Value};
+    use std::io::{self, Write};
 
     let mut env = Environment::new();
     println!("C-DSL REPL  (exit to quit)");
@@ -42,8 +42,12 @@ fn repl() {
             Ok(0) | Err(_) => break,
             Ok(_) => {
                 let src = line.trim();
-                if src.is_empty() { continue; }
-                if src == "exit" || src == "quit" { break; }
+                if src.is_empty() {
+                    continue;
+                }
+                if src == "exit" || src == "quit" {
+                    break;
+                }
                 let result = exec_in(&mut env, src);
                 if !matches!(result, Value::Nil) {
                     println!("{}", result);

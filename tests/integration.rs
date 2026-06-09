@@ -119,7 +119,10 @@ fn test_e2e_fn_def_and_call() {
 
 #[test]
 fn test_e2e_pipe_chain() {
-    assert_eq!(execute("fn double x=>x*2;3|double|double"), Value::Number(12.0));
+    assert_eq!(
+        execute("fn double x=>x*2;3|double|double"),
+        Value::Number(12.0)
+    );
 }
 
 #[test]

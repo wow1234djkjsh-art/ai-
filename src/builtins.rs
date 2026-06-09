@@ -74,9 +74,9 @@ pub fn builtin_print(args: Vec<Value>) -> Value {
     match args.into_iter().next() {
         Some(v) => {
             match &v {
-                Value::Number(n)   => println!("{}", n),
-                Value::String(s)   => println!("{}", s),
-                Value::Nil         => println!("nil"),
+                Value::Number(n) => println!("{}", n),
+                Value::String(s) => println!("{}", s),
+                Value::Nil => println!("nil"),
                 Value::Function(_) => println!("<fn>"),
             }
             v

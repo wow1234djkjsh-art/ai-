@@ -6,15 +6,42 @@ pub enum Expr {
     Str(String),
     Ident(String),
     Neg(Box<Expr>),
-    Assign { name: String, value: Box<Expr> },
-    BinOp  { op: char, left: Box<Expr>, right: Box<Expr> },
-    FnDef  { name: String, params: Vec<String>, body: Box<Expr> },
-    Lambda { params: Vec<String>, body: Box<Expr> },
-    Call   { name: String, args: Vec<Expr> },
-    If     { cond: Box<Expr>, then: Box<Expr>, else_: Box<Expr> },
-    Pipe   { left: Box<Expr>, right: Box<Expr> },
-    Each   { items: Vec<Expr>, func: Box<Expr> },
-    Block  (Vec<Expr>),
+    Assign {
+        name: String,
+        value: Box<Expr>,
+    },
+    BinOp {
+        op: char,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    FnDef {
+        name: String,
+        params: Vec<String>,
+        body: Box<Expr>,
+    },
+    Lambda {
+        params: Vec<String>,
+        body: Box<Expr>,
+    },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+    If {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        else_: Box<Expr>,
+    },
+    Pipe {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Each {
+        items: Vec<Expr>,
+        func: Box<Expr>,
+    },
+    Block(Vec<Expr>),
 }
 
 struct Parser<'a> {
@@ -33,7 +60,9 @@ impl<'a> Parser<'a> {
 
     fn advance(&mut self) -> Token {
         let tok = self.tokens.get(self.pos).cloned().unwrap_or(Token::Eof);
-        if self.pos < self.tokens.len() { self.pos += 1; }
+        if self.pos < self.tokens.len() {
+            self.pos += 1;
+        }
         tok
     }
 
@@ -56,7 +85,9 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_seps(&mut self) {
-        while self.peek() == &Token::Sep { self.advance(); }
+        while self.peek() == &Token::Sep {
+            self.advance();
+        }
     }
 
     fn parse_block(&mut self) -> Result<Expr, String> {
@@ -65,7 +96,9 @@ impl<'a> Parser<'a> {
         while !matches!(self.peek(), Token::Eof) {
             stmts.push(self.parse_stmt()?);
             if matches!(self.peek(), Token::Sep) {
-                while matches!(self.peek(), Token::Sep) { self.advance(); }
+                while matches!(self.peek(), Token::Sep) {
+                    self.advance();
+                }
             } else {
                 break;
             }
@@ -83,7 +116,10 @@ impl<'a> Parser<'a> {
                     self.advance(); // Ident
                     self.advance(); // '='
                     let value = self.parse_expr()?;
-                    Ok(Expr::Assign { name, value: Box::new(value) })
+                    Ok(Expr::Assign {
+                        name,
+                        value: Box::new(value),
+                    })
                 } else {
                     self.parse_expr()
                 }
@@ -109,7 +145,11 @@ impl<'a> Parser<'a> {
         let params = self.parse_params()?;
         self.eat_arrow()?;
         let body = self.parse_expr()?;
-        Ok(Expr::FnDef { name, params, body: Box::new(body) })
+        Ok(Expr::FnDef {
+            name,
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn parse_lambda(&mut self) -> Result<Expr, String> {
@@ -117,7 +157,10 @@ impl<'a> Parser<'a> {
         let params = self.parse_params()?;
         self.eat_arrow()?;
         let body = self.parse_expr()?;
-        Ok(Expr::Lambda { params, body: Box::new(body) })
+        Ok(Expr::Lambda {
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn parse_params(&mut self) -> Result<Vec<String>, String> {
@@ -125,7 +168,9 @@ impl<'a> Parser<'a> {
         while let Token::Ident(p) = self.peek().clone() {
             params.push(p);
             self.advance();
-            if self.peek() == &Token::Sym(',') { self.advance(); }
+            if self.peek() == &Token::Sym(',') {
+                self.advance();
+            }
         }
         Ok(params)
     }
@@ -134,9 +179,15 @@ impl<'a> Parser<'a> {
         self.advance(); // Each
         let mut items = Vec::new();
         loop {
-            if matches!(self.peek(), Token::Sym(':') | Token::Eof) { break; }
+            if matches!(self.peek(), Token::Sym(':') | Token::Eof) {
+                break;
+            }
             items.push(self.parse_add()?);
-            if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
+            if self.peek() == &Token::Sym(',') {
+                self.advance();
+            } else {
+                break;
+            }
         }
         self.eat_sym(':')?;
         let func = if self.peek() == &Token::Fn {
@@ -144,17 +195,24 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_pipe()?
         };
-        Ok(Expr::Each { items, func: Box::new(func) })
+        Ok(Expr::Each {
+            items,
+            func: Box::new(func),
+        })
     }
 
     fn parse_if(&mut self) -> Result<Expr, String> {
         self.advance(); // '?'
-        let cond  = self.parse_cmp()?;
+        let cond = self.parse_cmp()?;
         self.eat_sym(':')?;
-        let then  = self.parse_expr()?;
+        let then = self.parse_expr()?;
         self.eat_sym(':')?;
         let else_ = self.parse_expr()?;
-        Ok(Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
+        Ok(Expr::If {
+            cond: Box::new(cond),
+            then: Box::new(then),
+            else_: Box::new(else_),
+        })
     }
 
     fn parse_pipe(&mut self) -> Result<Expr, String> {
@@ -162,7 +220,10 @@ impl<'a> Parser<'a> {
         while self.peek() == &Token::Sym('|') {
             self.advance();
             let right = self.parse_cmp()?;
-            left = Expr::Pipe { left: Box::new(left), right: Box::new(right) };
+            left = Expr::Pipe {
+                left: Box::new(left),
+                right: Box::new(right),
+            };
         }
         Ok(left)
     }
@@ -170,10 +231,16 @@ impl<'a> Parser<'a> {
     fn parse_cmp(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_add()?;
         while let Token::Sym(op) = self.peek().clone() {
-            if op != '>' && op != '<' { break; }
+            if op != '>' && op != '<' {
+                break;
+            }
             self.advance();
             let right = self.parse_add()?;
-            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+            left = Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
         }
         Ok(left)
     }
@@ -181,10 +248,16 @@ impl<'a> Parser<'a> {
     fn parse_add(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_mul()?;
         while let Token::Sym(op) = self.peek().clone() {
-            if op != '+' && op != '-' { break; }
+            if op != '+' && op != '-' {
+                break;
+            }
             self.advance();
             let right = self.parse_mul()?;
-            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+            left = Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
         }
         Ok(left)
     }
@@ -192,10 +265,16 @@ impl<'a> Parser<'a> {
     fn parse_mul(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_unary()?;
         while let Token::Sym(op) = self.peek().clone() {
-            if op != '*' && op != '/' { break; }
+            if op != '*' && op != '/' {
+                break;
+            }
             self.advance();
             let right = self.parse_unary()?;
-            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+            left = Expr::BinOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
         }
         Ok(left)
     }
@@ -211,9 +290,15 @@ impl<'a> Parser<'a> {
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
         match self.peek().clone() {
-            Token::Number(n) => { self.advance(); Ok(Expr::Number(n)) }
-            Token::Str(s)    => { self.advance(); Ok(Expr::Str(s)) }
-            Token::Sym('(')  => {
+            Token::Number(n) => {
+                self.advance();
+                Ok(Expr::Number(n))
+            }
+            Token::Str(s) => {
+                self.advance();
+                Ok(Expr::Str(s))
+            }
+            Token::Sym('(') => {
                 self.advance();
                 let e = self.parse_pipe()?;
                 self.eat_sym(')')?;
@@ -237,20 +322,32 @@ impl<'a> Parser<'a> {
     }
 
     fn is_value_start(&self) -> bool {
-        matches!(self.peek(), Token::Number(_) | Token::Str(_) | Token::Ident(_))
+        matches!(
+            self.peek(),
+            Token::Number(_) | Token::Str(_) | Token::Ident(_)
+        )
     }
 
     fn parse_call_args_paren(&mut self) -> Result<Vec<Expr>, String> {
         let mut args = Vec::new();
-        if self.peek() == &Token::Sym(')') { self.advance(); return Ok(args); }
+        if self.peek() == &Token::Sym(')') {
+            self.advance();
+            return Ok(args);
+        }
         loop {
             args.push(self.parse_add()?);
             match self.peek().clone() {
                 Token::Sym(',') => {
                     self.advance();
-                    if self.peek() == &Token::Sym(')') { self.advance(); break; }
+                    if self.peek() == &Token::Sym(')') {
+                        self.advance();
+                        break;
+                    }
                 }
-                Token::Sym(')') => { self.advance(); break; }
+                Token::Sym(')') => {
+                    self.advance();
+                    break;
+                }
                 tok => return Err(format!("expected ',' or ')' in call, got {:?}", tok)),
             }
         }
@@ -263,7 +360,9 @@ impl<'a> Parser<'a> {
             args.push(self.parse_add()?);
             if self.peek() == &Token::Sym(',') {
                 self.advance();
-                if !self.is_value_start() { break; }
+                if !self.is_value_start() {
+                    break;
+                }
             } else {
                 break;
             }

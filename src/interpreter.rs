@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::rc::Rc;
 use crate::lexer::lex;
 use crate::parser::{parse, Expr};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub enum Value {
@@ -26,10 +26,10 @@ impl PartialEq for Value {
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Number(n)   => write!(f, "Number({})", n),
-            Value::String(s)   => write!(f, "String({})", s),
+            Value::Number(n) => write!(f, "Number({})", n),
+            Value::String(s) => write!(f, "String({})", s),
             Value::Function(_) => write!(f, "Function(...)"),
-            Value::Nil         => write!(f, "Nil"),
+            Value::Nil => write!(f, "Nil"),
         }
     }
 }
@@ -41,18 +41,28 @@ pub struct Environment {
 }
 
 impl Default for Environment {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Environment {
     pub fn new() -> Self {
-        Environment { name_value: HashMap::new(), parent: None }
+        Environment {
+            name_value: HashMap::new(),
+            parent: None,
+        }
     }
     pub fn with_parent(parent: Environment) -> Self {
-        Environment { name_value: HashMap::new(), parent: Some(Rc::new(parent)) }
+        Environment {
+            name_value: HashMap::new(),
+            parent: Some(Rc::new(parent)),
+        }
     }
     pub fn find(&self, name: &str) -> Option<Value> {
-        self.name_value.get(name).cloned()
+        self.name_value
+            .get(name)
+            .cloned()
             .or_else(|| self.parent.as_ref().and_then(|p| p.find(name)))
     }
     pub fn define(&mut self, name: String, value: Value) {
@@ -80,8 +90,8 @@ impl Function {
 
 pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
     match expr {
-        Expr::Number(n)  => Value::Number(*n),
-        Expr::Str(s)     => Value::String(s.clone()),
+        Expr::Number(n) => Value::Number(*n),
+        Expr::Str(s) => Value::String(s.clone()),
         Expr::Ident(name) => env.find(name).unwrap_or(Value::Nil),
         Expr::Neg(inner) => match eval_expr(env, inner) {
             Value::Number(n) => Value::Number(-n),
@@ -89,7 +99,9 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         },
         Expr::Block(stmts) => {
             let mut last = Value::Nil;
-            for stmt in stmts { last = eval_expr(env, stmt); }
+            for stmt in stmts {
+                last = eval_expr(env, stmt);
+            }
             last
         }
         Expr::Assign { name, value } => {
@@ -103,7 +115,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             eval_binop(*op, l, r)
         }
         Expr::FnDef { name, params, body } => {
-            env.define(name.clone(), Value::Nil);  // placeholder so name is in env before capture
+            env.define(name.clone(), Value::Nil); // placeholder so name is in env before capture
             let f = Value::Function(Function {
                 params: params.clone(),
                 body: *body.clone(),
@@ -112,13 +124,11 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             env.define(name.clone(), f.clone());
             f
         }
-        Expr::Lambda { params, body } => {
-            Value::Function(Function {
-                params: params.clone(),
-                body: *body.clone(),
-                parent_env: Rc::new(env.clone()),
-            })
-        }
+        Expr::Lambda { params, body } => Value::Function(Function {
+            params: params.clone(),
+            body: *body.clone(),
+            parent_env: Rc::new(env.clone()),
+        }),
         Expr::Call { name, args } => {
             let eval_args: Vec<Value> = args.iter().map(|a| eval_expr(env, a)).collect();
             call_fn(env, name, eval_args)
@@ -127,10 +137,14 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             let truthy = match eval_expr(env, cond) {
                 Value::Number(n) => n != 0.0,
                 Value::String(s) => !s.is_empty(),
-                Value::Nil       => false,
+                Value::Nil => false,
                 Value::Function(_) => true,
             };
-            if truthy { eval_expr(env, then) } else { eval_expr(env, else_) }
+            if truthy {
+                eval_expr(env, then)
+            } else {
+                eval_expr(env, else_)
+            }
         }
         Expr::Pipe { left, right } => {
             let left_val = eval_expr(env, left);
@@ -166,7 +180,11 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
         ('-', Value::Number(l), Value::Number(r)) => Value::Number(l - r),
         ('*', Value::Number(l), Value::Number(r)) => Value::Number(l * r),
         ('/', Value::Number(l), Value::Number(r)) => {
-            if *r == 0.0 { Value::Nil } else { Value::Number(l / r) }
+            if *r == 0.0 {
+                Value::Nil
+            } else {
+                Value::Number(l / r)
+            }
         }
         ('>', Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
         ('<', Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
@@ -178,7 +196,7 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
 fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
     match name {
         "print" => crate::builtins::builtin_print(args),
-        "eval"  => crate::builtins::builtin_eval(env, args),
+        "eval" => crate::builtins::builtin_eval(env, args),
         "model" => crate::builtins::model(env, args),
         _ => match env.find(name) {
             Some(Value::Function(f)) => {
@@ -195,7 +213,7 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
                 f_with_self.call(args)
             }
             _ => Value::Nil,
-        }
+        },
     }
 }
 
@@ -203,8 +221,11 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
 pub fn execute(src: &str) -> Value {
     let tokens = lex(src);
     match parse(&tokens) {
-        Ok(ast) => { let mut env = Environment::new(); eval_expr(&mut env, &ast) }
-        Err(_)  => Value::Nil,
+        Ok(ast) => {
+            let mut env = Environment::new();
+            eval_expr(&mut env, &ast)
+        }
+        Err(_) => Value::Nil,
     }
 }
 
@@ -213,8 +234,11 @@ pub fn execute(src: &str) -> Value {
 pub fn eval(env: &Environment, src: &str) -> Value {
     let tokens = lex(src);
     match parse(&tokens) {
-        Ok(ast) => { let mut local = env.clone(); eval_expr(&mut local, &ast) }
-        Err(_)  => Value::Nil,
+        Ok(ast) => {
+            let mut local = env.clone();
+            eval_expr(&mut local, &ast)
+        }
+        Err(_) => Value::Nil,
     }
 }
 
@@ -223,7 +247,10 @@ pub fn exec_in(env: &mut Environment, src: &str) -> Value {
     let tokens = lex(src);
     match parse(&tokens) {
         Ok(ast) => eval_expr(env, &ast),
-        Err(e)  => { eprintln!("parse error: {}", e); Value::Nil }
+        Err(e) => {
+            eprintln!("parse error: {}", e);
+            Value::Nil
+        }
     }
 }
 
@@ -236,10 +263,14 @@ impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Number(n) => {
-                if n.fract() == 0.0 { write!(f, "{}", *n as i64) } else { write!(f, "{}", n) }
+                if n.fract() == 0.0 {
+                    write!(f, "{}", *n as i64)
+                } else {
+                    write!(f, "{}", n)
+                }
             }
-            Value::String(s)   => write!(f, "{}", s),
-            Value::Nil         => write!(f, "nil"),
+            Value::String(s) => write!(f, "{}", s),
+            Value::Nil => write!(f, "nil"),
             Value::Function(_) => write!(f, "<fn>"),
         }
     }

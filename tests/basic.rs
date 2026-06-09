@@ -11,9 +11,7 @@ fn test_lexer_simple() {
     assert!(tokens
         .iter()
         .any(|t| matches!(t, c_dsl::lexer::Token::Ident(s) if s == "add")));
-    assert!(tokens
-        .iter()
-        .any(|t| matches!(t, c_dsl::lexer::Token::Fn)));
+    assert!(tokens.iter().any(|t| matches!(t, c_dsl::lexer::Token::Fn)));
 }
 
 #[test]

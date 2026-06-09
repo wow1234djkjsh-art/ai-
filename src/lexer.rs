@@ -19,10 +19,18 @@ pub fn lex(src: &str) -> Vec<Token> {
     let mut i = 0;
     while i < chars.len() {
         match chars[i] {
-            ' ' | '\t' => { i += 1; }
-            '\n' => { tokens.push(Token::Sep); i += 1; }
-            ';'  => { tokens.push(Token::Sep); i += 1; }
-            '='  => {
+            ' ' | '\t' => {
+                i += 1;
+            }
+            '\n' => {
+                tokens.push(Token::Sep);
+                i += 1;
+            }
+            ';' => {
+                tokens.push(Token::Sep);
+                i += 1;
+            }
+            '=' => {
                 if i + 1 < chars.len() && chars[i + 1] == '>' {
                     tokens.push(Token::Arrow);
                     i += 2;
@@ -38,10 +46,14 @@ pub fn lex(src: &str) -> Vec<Token> {
             '"' => {
                 i += 1;
                 let start = i;
-                while i < chars.len() && chars[i] != '"' { i += 1; }
+                while i < chars.len() && chars[i] != '"' {
+                    i += 1;
+                }
                 let s: String = chars[start..i].iter().collect();
                 tokens.push(Token::Str(s));
-                if i < chars.len() { i += 1; }
+                if i < chars.len() {
+                    i += 1;
+                }
             }
             c if c.is_ascii_digit() => {
                 let start = i;
@@ -58,12 +70,14 @@ pub fn lex(src: &str) -> Vec<Token> {
                 }
                 let word: String = chars[start..i].iter().collect();
                 match word.as_str() {
-                    "fn"   => tokens.push(Token::Fn),
+                    "fn" => tokens.push(Token::Fn),
                     "each" => tokens.push(Token::Each),
-                    _      => tokens.push(Token::Ident(word)),
+                    _ => tokens.push(Token::Ident(word)),
                 }
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
     tokens.push(Token::Eof);

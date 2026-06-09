@@ -12,10 +12,10 @@ fn test_string_literal() {
 
 #[test]
 fn test_arithmetic() {
-    assert_eq!(execute("2+3"),   Value::Number(5.0));
-    assert_eq!(execute("10-4"),  Value::Number(6.0));
-    assert_eq!(execute("6*7"),   Value::Number(42.0));
-    assert_eq!(execute("20/4"),  Value::Number(5.0));
+    assert_eq!(execute("2+3"), Value::Number(5.0));
+    assert_eq!(execute("10-4"), Value::Number(6.0));
+    assert_eq!(execute("6*7"), Value::Number(42.0));
+    assert_eq!(execute("20/4"), Value::Number(5.0));
 }
 
 #[test]
@@ -51,7 +51,10 @@ fn test_pipe_to_builtin() {
 
 #[test]
 fn test_pipe_chain() {
-    assert_eq!(execute("fn double x=>x*2;3|double|double"), Value::Number(12.0));
+    assert_eq!(
+        execute("fn double x=>x*2;3|double|double"),
+        Value::Number(12.0)
+    );
 }
 
 #[test]
@@ -72,7 +75,10 @@ fn test_closure_capture() {
 
 #[test]
 fn test_string_concat() {
-    assert_eq!(execute("\"hello\"+\"world\""), Value::String("helloworld".into()));
+    assert_eq!(
+        execute("\"hello\"+\"world\""),
+        Value::String("helloworld".into())
+    );
 }
 
 #[test]
@@ -90,13 +96,19 @@ fn test_print_pipeline() {
 #[test]
 fn test_recursive_function() {
     // fact(3) = 3 * 2 * 1 = 6
-    assert_eq!(execute("fn fact n=>?n>0:n*fact n-1:1;fact 3"), Value::Number(6.0));
+    assert_eq!(
+        execute("fn fact n=>?n>0:n*fact n-1:1;fact 3"),
+        Value::Number(6.0)
+    );
 }
 
 #[test]
 fn test_conditional_in_fn_body() {
-    assert_eq!(execute("fn abs x=>?x>0:x:0-x;abs(5)"),  Value::Number(5.0));
-    assert_eq!(execute("fn abs x=>?x>0:x:0-x;n=0-3;abs n"), Value::Number(3.0));
+    assert_eq!(execute("fn abs x=>?x>0:x:0-x;abs(5)"), Value::Number(5.0));
+    assert_eq!(
+        execute("fn abs x=>?x>0:x:0-x;n=0-3;abs n"),
+        Value::Number(3.0)
+    );
 }
 
 #[test]
