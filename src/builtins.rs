@@ -4,6 +4,7 @@ use sha2::{Sha256, Digest};
 use crate::interpreter::Value;
 use crate::cache::{get_cached, set_cached};
 
+#[allow(dead_code)]
 /// Call the model primitive.
 /// Signature: model "<model-id>" "<prompt>" [format:"code"] [force:"true"|"false"]
 pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value {

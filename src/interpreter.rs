@@ -6,6 +6,7 @@ use std::rc::Rc;
 pub enum Value {
     Number(f64),
     String(String),
+    #[allow(dead_code)]
     Function(Function),
     Nil,
 }
@@ -46,6 +47,7 @@ impl Environment {
             parent: None,
         }
     }
+    #[allow(dead_code)]
     pub fn with_parent(parent: Environment) -> Self {
         Environment {
             name_value: HashMap::new(),
@@ -58,6 +60,7 @@ impl Environment {
             .cloned()
             .or_else(|| self.parent.as_ref().and_then(|p| p.find(name)))
     }
+    #[allow(dead_code)]
     pub fn define(&mut self, name: String, value: Value) {
         self.name_value.insert(name, value);
     }
@@ -68,9 +71,11 @@ impl Environment {
 pub struct Function {
     pub params: Vec<String>,
     pub body: String,
+    #[allow(dead_code)]
     pub parent_env: Rc<Environment>,
 }
 impl Function {
+    #[allow(dead_code)]
     pub fn call(&self, args: Vec<Value>) -> Value {
         let parent_map = self.parent_env.name_value.clone();
         let mut env = Environment::new();
