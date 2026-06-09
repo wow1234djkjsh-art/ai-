@@ -9,6 +9,8 @@ pub enum Value {
     String(String),
     Function(Function),
     Nil,
+    List(Vec<Value>),
+    Dict(Vec<(String, Value)>),
 }
 
 impl PartialEq for Value {
@@ -18,6 +20,8 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
             (Value::Function(a), Value::Function(b)) => a.params == b.params && a.body == b.body,
+            (Value::List(a),  Value::List(b))  => a == b,
+            (Value::Dict(a),  Value::Dict(b))  => a == b,
             _ => false,
         }
     }
@@ -30,6 +34,8 @@ impl std::fmt::Debug for Value {
             Value::String(s) => write!(f, "String({})", s),
             Value::Function(_) => write!(f, "Function(...)"),
             Value::Nil => write!(f, "Nil"),
+            Value::List(items) => write!(f, "List({:?})", items),
+            Value::Dict(pairs) => write!(f, "Dict({:?})", pairs),
         }
     }
 }
@@ -134,13 +140,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             call_fn(env, name, eval_args)
         }
         Expr::If { cond, then, else_ } => {
-            let truthy = match eval_expr(env, cond) {
-                Value::Number(n) => n != 0.0,
-                Value::String(s) => !s.is_empty(),
-                Value::Nil => false,
-                Value::Function(_) => true,
-            };
-            if truthy {
+            if is_truthy(&eval_expr(env, cond)) {
                 eval_expr(env, then)
             } else {
                 eval_expr(env, else_)
@@ -171,6 +171,44 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             }
             last
         }
+        Expr::List(items) => {
+            Value::List(items.iter().map(|e| eval_expr(env, e)).collect())
+        }
+        Expr::Dict(pairs) => {
+            Value::Dict(
+                pairs.iter()
+                    .map(|(k, v)| (k.clone(), eval_expr(env, v)))
+                    .collect(),
+            )
+        }
+        Expr::Index { object, index } => {
+            let obj_val = eval_expr(env, object);
+            let idx_val = eval_expr(env, index);
+            match (obj_val, idx_val) {
+                (Value::List(items), Value::Number(n)) => {
+                    items.get(n as usize).cloned().unwrap_or(Value::Nil)
+                }
+                (Value::Dict(pairs), Value::String(key)) => {
+                    pairs.into_iter()
+                        .find(|(k, _)| k == &key)
+                        .map(|(_, v)| v)
+                        .unwrap_or(Value::Nil)
+                }
+                (Value::Function(f), Value::List(args)) => f.call(vec![Value::List(args)]),
+                _ => Value::Nil,
+            }
+        }
+    }
+}
+
+fn is_truthy(val: &Value) -> bool {
+    match val {
+        Value::Number(n)   => *n != 0.0,
+        Value::String(s)   => !s.is_empty(),
+        Value::Nil         => false,
+        Value::Function(_) => true,
+        Value::List(items) => !items.is_empty(),
+        Value::Dict(pairs) => !pairs.is_empty(),
     }
 }
 
@@ -272,6 +310,16 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Nil => write!(f, "nil"),
             Value::Function(_) => write!(f, "<fn>"),
+            Value::List(items) => {
+                let inner: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+                write!(f, "[{}]", inner.join(", "))
+            }
+            Value::Dict(pairs) => {
+                let inner: Vec<String> = pairs.iter()
+                    .map(|(k, v)| format!("{}:{}", k, v))
+                    .collect();
+                write!(f, "{{{}}}", inner.join(", "))
+            }
         }
     }
 }

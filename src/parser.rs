@@ -42,6 +42,9 @@ pub enum Expr {
         func: Box<Expr>,
     },
     Block(Vec<Expr>),
+    List(Vec<Expr>),
+    Dict(Vec<(String, Expr)>),
+    Index { object: Box<Expr>, index: Box<Expr> },
 }
 
 struct Parser<'a> {
@@ -288,33 +291,82 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_list(&mut self) -> Result<Expr, String> {
+        self.advance(); // consume '['
+        let mut items = Vec::new();
+        while self.peek() != &Token::Sym(']') && !matches!(self.peek(), Token::Eof) {
+            items.push(self.parse_pipe()?);
+            if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
+        }
+        self.eat_sym(']')?;
+        Ok(Expr::List(items))
+    }
+
+    fn parse_dict(&mut self) -> Result<Expr, String> {
+        self.advance(); // consume '{'
+        let mut pairs = Vec::new();
+        while self.peek() != &Token::Sym('}') && !matches!(self.peek(), Token::Eof) {
+            let key = match self.advance() {
+                Token::Str(s)   => s,
+                Token::Ident(s) => s,
+                tok => return Err(format!("expected dict key, got {:?}", tok)),
+            };
+            self.eat_sym(':')?;
+            let val = self.parse_pipe()?;
+            pairs.push((key, val));
+            if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
+        }
+        self.eat_sym('}')?;
+        Ok(Expr::Dict(pairs))
+    }
+
+    fn apply_subscript(&mut self, mut expr: Expr) -> Result<Expr, String> {
+        while self.peek() == &Token::Sym('[') {
+            self.advance(); // consume '['
+            // Collect comma-separated items until ']'
+            let mut items = Vec::new();
+            while self.peek() != &Token::Sym(']') && !matches!(self.peek(), Token::Eof) {
+                items.push(self.parse_pipe()?);
+                if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
+            }
+            self.eat_sym(']')?;
+            // Single item → use as index; multiple items → wrap in List
+            let index = if items.len() == 1 {
+                items.into_iter().next().unwrap()
+            } else {
+                Expr::List(items)
+            };
+            expr = Expr::Index { object: Box::new(expr), index: Box::new(index) };
+        }
+        Ok(expr)
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, String> {
         match self.peek().clone() {
-            Token::Number(n) => {
-                self.advance();
-                Ok(Expr::Number(n))
-            }
-            Token::Str(s) => {
-                self.advance();
-                Ok(Expr::Str(s))
-            }
-            Token::Sym('(') => {
+            Token::Number(n) => { self.advance(); self.apply_subscript(Expr::Number(n)) }
+            Token::Str(s)    => { self.advance(); self.apply_subscript(Expr::Str(s)) }
+            Token::Sym('(')  => {
                 self.advance();
                 let e = self.parse_pipe()?;
                 self.eat_sym(')')?;
-                Ok(e)
+                self.apply_subscript(e)
             }
+            Token::Sym('[') => { let e = self.parse_list()?; self.apply_subscript(e) }
+            Token::Sym('{') => { let e = self.parse_dict()?; self.apply_subscript(e) }
             Token::Ident(name) => {
                 self.advance();
                 if self.peek() == &Token::Sym('(') {
                     self.advance();
                     let args = self.parse_call_args_paren()?;
-                    Ok(Expr::Call { name, args })
+                    self.apply_subscript(Expr::Call { name, args })
+                } else if self.peek() == &Token::Sym('[') {
+                    // '[' immediately after ident is a subscript, not a call argument
+                    self.apply_subscript(Expr::Ident(name))
                 } else if self.is_value_start() {
                     let args = self.parse_call_args_space()?;
-                    Ok(Expr::Call { name, args })
+                    self.apply_subscript(Expr::Call { name, args })
                 } else {
-                    Ok(Expr::Ident(name))
+                    self.apply_subscript(Expr::Ident(name))
                 }
             }
             tok => Err(format!("unexpected token {:?}", tok)),
@@ -325,6 +377,7 @@ impl<'a> Parser<'a> {
         matches!(
             self.peek(),
             Token::Number(_) | Token::Str(_) | Token::Ident(_)
+                | Token::Sym('[') | Token::Sym('{')
         )
     }
 
@@ -335,7 +388,7 @@ impl<'a> Parser<'a> {
             return Ok(args);
         }
         loop {
-            args.push(self.parse_add()?);
+            args.push(self.parse_pipe()?);
             match self.peek().clone() {
                 Token::Sym(',') => {
                     self.advance();

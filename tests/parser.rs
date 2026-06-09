@@ -169,3 +169,73 @@ fn test_parse_double_neg() {
         )))))])
     );
 }
+
+#[test]
+fn test_parse_list_literal() {
+    assert_eq!(
+        p("[1,2,3]"),
+        Expr::Block(vec![Expr::List(vec![
+            Expr::Number(1.0), Expr::Number(2.0), Expr::Number(3.0),
+        ])])
+    );
+}
+
+#[test]
+fn test_parse_empty_list() {
+    assert_eq!(p("[]"), Expr::Block(vec![Expr::List(vec![])]));
+}
+
+#[test]
+fn test_parse_dict_literal() {
+    assert_eq!(
+        p("{a:1}"),
+        Expr::Block(vec![Expr::Dict(vec![("a".to_string(), Expr::Number(1.0))])])
+    );
+}
+
+#[test]
+fn test_parse_index_ident() {
+    assert_eq!(
+        p("lst[0]"),
+        Expr::Block(vec![Expr::Index {
+            object: Box::new(Expr::Ident("lst".into())),
+            index:  Box::new(Expr::Number(0.0)),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_index_dict() {
+    assert_eq!(
+        p("d[\"k\"]"),
+        Expr::Block(vec![Expr::Index {
+            object: Box::new(Expr::Ident("d".into())),
+            index:  Box::new(Expr::Str("k".into())),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_index_chain() {
+    assert_eq!(
+        p("lst[0][1]"),
+        Expr::Block(vec![Expr::Index {
+            object: Box::new(Expr::Index {
+                object: Box::new(Expr::Ident("lst".into())),
+                index:  Box::new(Expr::Number(0.0)),
+            }),
+            index: Box::new(Expr::Number(1.0)),
+        }])
+    );
+}
+
+#[test]
+fn test_parse_inline_list_index() {
+    assert_eq!(
+        p("[10,20][1]"),
+        Expr::Block(vec![Expr::Index {
+            object: Box::new(Expr::List(vec![Expr::Number(10.0), Expr::Number(20.0)])),
+            index:  Box::new(Expr::Number(1.0)),
+        }])
+    );
+}

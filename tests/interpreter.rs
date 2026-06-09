@@ -116,3 +116,41 @@ fn test_lambda_with_conditional() {
     // each item: if >1 double it, else keep
     assert_eq!(execute("each 1,2,3:fn x=>?x>1:x*2:x"), Value::Number(6.0));
 }
+
+#[test]
+fn test_list_indexing() {
+    assert_eq!(execute("[10,20,30][1]"), Value::Number(20.0));
+}
+
+#[test]
+fn test_list_assign_and_index() {
+    assert_eq!(execute("lst=[1,2,3];lst[0]"), Value::Number(1.0));
+}
+
+#[test]
+fn test_dict_literal_lookup() {
+    assert_eq!(execute("{x:42}[\"x\"]"), Value::Number(42.0));
+}
+
+#[test]
+fn test_dict_assign_and_lookup() {
+    assert_eq!(
+        execute("d={name:\"Alice\"};d[\"name\"]"),
+        Value::String("Alice".into())
+    );
+}
+
+#[test]
+fn test_index_out_of_bounds() {
+    assert_eq!(execute("[1,2][9]"), Value::Nil);
+}
+
+#[test]
+fn test_dict_missing_key() {
+    assert_eq!(execute("{a:1}[\"b\"]"), Value::Nil);
+}
+
+#[test]
+fn test_list_in_fn_call() {
+    assert_eq!(execute("fn first lst=>lst[0];first [7,8,9]"), Value::Number(7.0));
+}

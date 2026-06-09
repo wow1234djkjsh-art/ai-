@@ -78,6 +78,7 @@ pub fn builtin_print(args: Vec<Value>) -> Value {
                 Value::String(s) => println!("{}", s),
                 Value::Nil => println!("nil"),
                 Value::Function(_) => println!("<fn>"),
+                Value::List(_) | Value::Dict(_) => println!("{}", v),
             }
             v
         }
