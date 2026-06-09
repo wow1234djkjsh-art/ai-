@@ -68,3 +68,19 @@ pub fn builtin_eval(env: &crate::interpreter::Environment, args: Vec<Value>) -> 
     };
     crate::interpreter::eval(env, &code)
 }
+
+/// Print the first argument to stdout and return it unchanged.
+pub fn builtin_print(args: Vec<Value>) -> Value {
+    match args.into_iter().next() {
+        Some(v) => {
+            match &v {
+                Value::Number(n)   => println!("{}", n),
+                Value::String(s)   => println!("{}", s),
+                Value::Nil         => println!("nil"),
+                Value::Function(_) => println!("<fn>"),
+            }
+            v
+        }
+        None => Value::Nil,
+    }
+}

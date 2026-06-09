@@ -177,7 +177,7 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
 
 fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
     match name {
-        "print" => { args.into_iter().next().unwrap_or(Value::Nil) }
+        "print" => crate::builtins::builtin_print(args),
         "eval"  => crate::builtins::builtin_eval(env, args),
         "model" => crate::builtins::model(env, args),
         _ => match env.find(name) {

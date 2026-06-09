@@ -79,3 +79,10 @@ fn test_string_concat() {
 fn test_div_by_zero() {
     assert_eq!(execute("1/0"), Value::Nil);
 }
+
+#[test]
+fn test_print_pipeline() {
+    // 5 piped through print — value should come through unchanged
+    let result = execute("5|print");
+    assert_eq!(result, Value::Number(5.0));
+}
