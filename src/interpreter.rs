@@ -218,7 +218,29 @@ pub fn eval(env: &Environment, src: &str) -> Value {
     }
 }
 
+/// Run source in an existing mutable environment so variable assignments persist across calls.
+pub fn exec_in(env: &mut Environment, src: &str) -> Value {
+    let tokens = lex(src);
+    match parse(&tokens) {
+        Ok(ast) => eval_expr(env, &ast),
+        Err(e)  => { eprintln!("parse error: {}", e); Value::Nil }
+    }
+}
+
 /// Placeholder kept for main.rs --test flag compatibility.
 pub fn run_tests() {
     println!("Running tests...");
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Number(n) => {
+                if n.fract() == 0.0 { write!(f, "{}", *n as i64) } else { write!(f, "{}", n) }
+            }
+            Value::String(s)   => write!(f, "{}", s),
+            Value::Nil         => write!(f, "nil"),
+            Value::Function(_) => write!(f, "<fn>"),
+        }
+    }
 }
