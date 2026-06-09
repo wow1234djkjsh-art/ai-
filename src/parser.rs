@@ -143,7 +143,7 @@ impl<'a> Parser<'a> {
         self.advance(); // '?'
         let cond  = self.parse_cmp()?;
         self.eat_sym(':')?;
-        let then  = self.parse_cmp()?;
+        let then  = self.parse_pipe()?;
         self.eat_sym(':')?;
         let else_ = self.parse_pipe()?;
         Ok(Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
@@ -195,7 +195,7 @@ impl<'a> Parser<'a> {
     fn parse_unary(&mut self) -> Result<Expr, String> {
         if self.peek() == &Token::Sym('-') {
             self.advance();
-            Ok(Expr::Neg(Box::new(self.parse_primary()?)))
+            Ok(Expr::Neg(Box::new(self.parse_unary()?)))
         } else {
             self.parse_primary()
         }
@@ -238,7 +238,10 @@ impl<'a> Parser<'a> {
         loop {
             args.push(self.parse_add()?);
             match self.peek().clone() {
-                Token::Sym(',') => { self.advance(); }
+                Token::Sym(',') => {
+                    self.advance();
+                    if self.peek() == &Token::Sym(')') { self.advance(); break; }
+                }
                 Token::Sym(')') => { self.advance(); break; }
                 tok => return Err(format!("expected ',' or ')' in call, got {:?}", tok)),
             }

@@ -101,3 +101,22 @@ fn test_parse_each() {
         }
     ]));
 }
+
+#[test]
+fn test_parse_if_pipe_in_then() {
+    // then-arm containing a pipe must parse correctly
+    assert_eq!(p("?x>0:a|b:c"), Expr::Block(vec![
+        Expr::If {
+            cond:  Box::new(Expr::BinOp { op: '>', left: Box::new(Expr::Ident("x".into())), right: Box::new(Expr::Number(0.0)) }),
+            then:  Box::new(Expr::Pipe { left: Box::new(Expr::Ident("a".into())), right: Box::new(Expr::Ident("b".into())) }),
+            else_: Box::new(Expr::Ident("c".into())),
+        }
+    ]));
+}
+
+#[test]
+fn test_parse_double_neg() {
+    assert_eq!(p("--x"), Expr::Block(vec![
+        Expr::Neg(Box::new(Expr::Neg(Box::new(Expr::Ident("x".into())))))
+    ]));
+}
