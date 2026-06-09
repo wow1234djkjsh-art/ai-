@@ -1,64 +1,266 @@
-#![allow(dead_code)]
-// Simple parser for Compact‑DSL
-
 use crate::lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    FnDef {
-        name: String,
-        params: Vec<String>,
-        body: String,
-    },
-    // Future expression types can be added here
+    Number(f64),
+    Str(String),
+    Ident(String),
+    Neg(Box<Expr>),
+    Assign { name: String, value: Box<Expr> },
+    BinOp  { op: char, left: Box<Expr>, right: Box<Expr> },
+    FnDef  { name: String, params: Vec<String>, body: Box<Expr> },
+    Lambda { params: Vec<String>, body: Box<Expr> },
+    Call   { name: String, args: Vec<Expr> },
+    If     { cond: Box<Expr>, then: Box<Expr>, else_: Box<Expr> },
+    Pipe   { left: Box<Expr>, right: Box<Expr> },
+    Each   { items: Vec<Expr>, func: Box<Expr> },
+    Block  (Vec<Expr>),
 }
 
-/// Parse a sequence of tokens into an AST.
-/// Currently only supports simple function definitions of the form:
-/// `fn <name> <param1> <param2> ... => <body>`
-pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
-    let mut iter = tokens.iter().peekable();
-    // Expect leading "fn" keyword
-    match iter.next() {
-        Some(Token::Fn) => {}
-        _ => return Err("expected 'fn' keyword".into()),
+struct Parser<'a> {
+    tokens: &'a [Token],
+    pos: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn new(tokens: &'a [Token]) -> Self {
+        Parser { tokens, pos: 0 }
     }
-    // Function name
-    let name = match iter.next() {
-        Some(Token::Ident(id)) => id.clone(),
-        _ => return Err("expected function name identifier".into()),
-    };
-    // Collect parameters until we see the Arrow token
-    let mut params = Vec::new();
-    while let Some(tok) = iter.peek() {
-        match tok {
-            Token::Arrow => {
-                // consume the arrow and break
-                iter.next();
+
+    fn peek(&self) -> &Token {
+        self.tokens.get(self.pos).unwrap_or(&Token::Eof)
+    }
+
+    fn advance(&mut self) -> Token {
+        let tok = self.tokens.get(self.pos).cloned().unwrap_or(Token::Eof);
+        if self.pos < self.tokens.len() { self.pos += 1; }
+        tok
+    }
+
+    fn eat_sym(&mut self, c: char) -> Result<(), String> {
+        if self.peek() == &Token::Sym(c) {
+            self.advance();
+            Ok(())
+        } else {
+            Err(format!("expected '{}', got {:?}", c, self.peek()))
+        }
+    }
+
+    fn eat_arrow(&mut self) -> Result<(), String> {
+        if self.peek() == &Token::Arrow {
+            self.advance();
+            Ok(())
+        } else {
+            Err(format!("expected '=>', got {:?}", self.peek()))
+        }
+    }
+
+    fn skip_seps(&mut self) {
+        while self.peek() == &Token::Sep { self.advance(); }
+    }
+
+    fn parse_block(&mut self) -> Result<Expr, String> {
+        self.skip_seps();
+        let mut stmts = Vec::new();
+        while !matches!(self.peek(), Token::Eof) {
+            stmts.push(self.parse_stmt()?);
+            if matches!(self.peek(), Token::Sep) {
+                while matches!(self.peek(), Token::Sep) { self.advance(); }
+            } else {
                 break;
             }
-            Token::Ident(id) => {
-                params.push(id.clone());
-                iter.next();
+        }
+        Ok(Expr::Block(stmts))
+    }
+
+    fn parse_stmt(&mut self) -> Result<Expr, String> {
+        match self.peek().clone() {
+            Token::Fn => self.parse_fn_def(),
+            Token::Each => self.parse_each(),
+            Token::Sym('?') => self.parse_if(),
+            Token::Ident(name) => {
+                if self.tokens.get(self.pos + 1) == Some(&Token::Sym('=')) {
+                    self.advance(); // Ident
+                    self.advance(); // '='
+                    let value = self.parse_pipe()?;
+                    Ok(Expr::Assign { name, value: Box::new(value) })
+                } else {
+                    self.parse_pipe()
+                }
             }
-            _ => return Err("unexpected token while parsing parameters".into()),
+            _ => self.parse_pipe(),
         }
     }
-    // The rest of the tokens constitute the body (joined with spaces)
-    let mut body_parts = Vec::new();
-    for tok in iter {
-        match tok {
-            Token::Ident(s) => body_parts.push(s.clone()),
-            Token::Sym(c) => body_parts.push(c.to_string()),
-            Token::Number(n) => body_parts.push(n.to_string()),
-            Token::Str(s) => body_parts.push(s.clone()),
-            Token::Sep => body_parts.push("\n".to_string()),
-            Token::Fn => body_parts.push("fn".to_string()),
-            Token::Each => body_parts.push("each".to_string()),
-            Token::Arrow => body_parts.push("=>".to_string()),
-            Token::Eof => break,
+
+    fn parse_fn_def(&mut self) -> Result<Expr, String> {
+        self.advance(); // Fn
+        let name = match self.advance() {
+            Token::Ident(n) => n,
+            tok => return Err(format!("expected fn name, got {:?}", tok)),
+        };
+        let params = self.parse_params()?;
+        self.eat_arrow()?;
+        let body = self.parse_pipe()?;
+        Ok(Expr::FnDef { name, params, body: Box::new(body) })
+    }
+
+    fn parse_lambda(&mut self) -> Result<Expr, String> {
+        self.advance(); // Fn
+        let params = self.parse_params()?;
+        self.eat_arrow()?;
+        let body = self.parse_add()?;
+        Ok(Expr::Lambda { params, body: Box::new(body) })
+    }
+
+    fn parse_params(&mut self) -> Result<Vec<String>, String> {
+        let mut params = Vec::new();
+        while let Token::Ident(p) = self.peek().clone() {
+            params.push(p);
+            self.advance();
+            if self.peek() == &Token::Sym(',') { self.advance(); }
+        }
+        Ok(params)
+    }
+
+    fn parse_each(&mut self) -> Result<Expr, String> {
+        self.advance(); // Each
+        let mut items = Vec::new();
+        loop {
+            if matches!(self.peek(), Token::Sym(':') | Token::Eof) { break; }
+            items.push(self.parse_add()?);
+            if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
+        }
+        self.eat_sym(':')?;
+        let func = if self.peek() == &Token::Fn {
+            self.parse_lambda()?
+        } else {
+            self.parse_pipe()?
+        };
+        Ok(Expr::Each { items, func: Box::new(func) })
+    }
+
+    fn parse_if(&mut self) -> Result<Expr, String> {
+        self.advance(); // '?'
+        let cond  = self.parse_cmp()?;
+        self.eat_sym(':')?;
+        let then  = self.parse_cmp()?;
+        self.eat_sym(':')?;
+        let else_ = self.parse_pipe()?;
+        Ok(Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
+    }
+
+    fn parse_pipe(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_cmp()?;
+        while self.peek() == &Token::Sym('|') {
+            self.advance();
+            let right = self.parse_cmp()?;
+            left = Expr::Pipe { left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_cmp(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_add()?;
+        while let Token::Sym(op) = self.peek().clone() {
+            if op != '>' && op != '<' { break; }
+            self.advance();
+            let right = self.parse_add()?;
+            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_add(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_mul()?;
+        while let Token::Sym(op) = self.peek().clone() {
+            if op != '+' && op != '-' { break; }
+            self.advance();
+            let right = self.parse_mul()?;
+            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_mul(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_unary()?;
+        while let Token::Sym(op) = self.peek().clone() {
+            if op != '*' && op != '/' { break; }
+            self.advance();
+            let right = self.parse_unary()?;
+            left = Expr::BinOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expr, String> {
+        if self.peek() == &Token::Sym('-') {
+            self.advance();
+            Ok(Expr::Neg(Box::new(self.parse_primary()?)))
+        } else {
+            self.parse_primary()
         }
     }
-    let body = body_parts.join(" ");
-    Ok(Expr::FnDef { name, params, body })
+
+    fn parse_primary(&mut self) -> Result<Expr, String> {
+        match self.peek().clone() {
+            Token::Number(n) => { self.advance(); Ok(Expr::Number(n)) }
+            Token::Str(s)    => { self.advance(); Ok(Expr::Str(s)) }
+            Token::Sym('(')  => {
+                self.advance();
+                let e = self.parse_pipe()?;
+                self.eat_sym(')')?;
+                Ok(e)
+            }
+            Token::Ident(name) => {
+                self.advance();
+                if self.peek() == &Token::Sym('(') {
+                    self.advance();
+                    let args = self.parse_call_args_paren()?;
+                    Ok(Expr::Call { name, args })
+                } else if self.is_value_start() {
+                    let args = self.parse_call_args_space()?;
+                    Ok(Expr::Call { name, args })
+                } else {
+                    Ok(Expr::Ident(name))
+                }
+            }
+            tok => Err(format!("unexpected token {:?}", tok)),
+        }
+    }
+
+    fn is_value_start(&self) -> bool {
+        matches!(self.peek(), Token::Number(_) | Token::Str(_) | Token::Ident(_))
+    }
+
+    fn parse_call_args_paren(&mut self) -> Result<Vec<Expr>, String> {
+        let mut args = Vec::new();
+        if self.peek() == &Token::Sym(')') { self.advance(); return Ok(args); }
+        loop {
+            args.push(self.parse_add()?);
+            match self.peek().clone() {
+                Token::Sym(',') => { self.advance(); }
+                Token::Sym(')') => { self.advance(); break; }
+                tok => return Err(format!("expected ',' or ')' in call, got {:?}", tok)),
+            }
+        }
+        Ok(args)
+    }
+
+    fn parse_call_args_space(&mut self) -> Result<Vec<Expr>, String> {
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_add()?);
+            if self.peek() == &Token::Sym(',') {
+                self.advance();
+                if !self.is_value_start() { break; }
+            } else {
+                break;
+            }
+        }
+        Ok(args)
+    }
+}
+
+pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
+    Parser::new(tokens).parse_block()
 }
