@@ -50,7 +50,8 @@ pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value 
     }
 
     let response = if format == "code" {
-        format!("// Generated code for {}: {}", model_id, prompt)
+        // Stub: return prompt length as a number expression (placeholder for real codegen)
+        prompt.len().to_string()
     } else {
         // Stub: echo prompt until real API integration is added
         prompt.to_string()
