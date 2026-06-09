@@ -1,4 +1,4 @@
-use crate::lexer::Token;
+use crate::lexer::{lex_with_spaces, Token};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -49,12 +49,18 @@ pub enum Expr {
 
 struct Parser<'a> {
     tokens: &'a [Token],
+    spaces: &'a [bool],
     pos: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token]) -> Self {
-        Parser { tokens, pos: 0 }
+    fn new(tokens: &'a [Token], spaces: &'a [bool]) -> Self {
+        Parser { tokens, spaces, pos: 0 }
+    }
+
+    /// Returns true if the current (next-to-be-consumed) token was preceded by whitespace.
+    fn peek_has_space(&self) -> bool {
+        self.spaces.get(self.pos).copied().unwrap_or(false)
     }
 
     fn peek(&self) -> &Token {
@@ -322,20 +328,9 @@ impl<'a> Parser<'a> {
 
     fn apply_subscript(&mut self, mut expr: Expr) -> Result<Expr, String> {
         while self.peek() == &Token::Sym('[') {
-            self.advance(); // consume '['
-            // Collect comma-separated items until ']'
-            let mut items = Vec::new();
-            while self.peek() != &Token::Sym(']') && !matches!(self.peek(), Token::Eof) {
-                items.push(self.parse_pipe()?);
-                if self.peek() == &Token::Sym(',') { self.advance(); } else { break; }
-            }
+            self.advance();
+            let index = self.parse_pipe()?;
             self.eat_sym(']')?;
-            // Single item → use as index; multiple items → wrap in List
-            let index = if items.len() == 1 {
-                items.into_iter().next().unwrap()
-            } else {
-                Expr::List(items)
-            };
             expr = Expr::Index { object: Box::new(expr), index: Box::new(index) };
         }
         Ok(expr)
@@ -359,9 +354,6 @@ impl<'a> Parser<'a> {
                     self.advance();
                     let args = self.parse_call_args_paren()?;
                     self.apply_subscript(Expr::Call { name, args })
-                } else if self.peek() == &Token::Sym('[') {
-                    // '[' immediately after ident is a subscript, not a call argument
-                    self.apply_subscript(Expr::Ident(name))
                 } else if self.is_value_start() {
                     let args = self.parse_call_args_space()?;
                     self.apply_subscript(Expr::Call { name, args })
@@ -377,8 +369,8 @@ impl<'a> Parser<'a> {
         matches!(
             self.peek(),
             Token::Number(_) | Token::Str(_) | Token::Ident(_)
-                | Token::Sym('[') | Token::Sym('{')
-        )
+                | Token::Sym('{')
+        ) || (matches!(self.peek(), Token::Sym('[')) && self.peek_has_space())
     }
 
     fn parse_call_args_paren(&mut self) -> Result<Vec<Expr>, String> {
@@ -424,6 +416,18 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Parse a pre-lexed token slice. No whitespace info is available; subscript (`[`) is
+/// assumed to have no preceding space (i.e. it is always a subscript, never a space-call
+/// argument). For full accuracy, prefer [`parse_src`].
+#[allow(dead_code)]
 pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
-    Parser::new(tokens).parse_block()
+    // No spacing info available when called with a pre-lexed slice; treat all as un-spaced
+    // so that `lst[0]` is a subscript, not a space-call. Use parse_src for full accuracy.
+    let spaces: Vec<bool> = vec![false; tokens.len()];
+    Parser::new(tokens, &spaces).parse_block()
+}
+
+pub fn parse_src(src: &str) -> Result<Expr, String> {
+    let (tokens, spaces) = lex_with_spaces(src);
+    Parser::new(&tokens, &spaces).parse_block()
 }

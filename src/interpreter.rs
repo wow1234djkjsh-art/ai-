@@ -1,5 +1,4 @@
-use crate::lexer::lex;
-use crate::parser::{parse, Expr};
+use crate::parser::{parse_src, Expr};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -194,7 +193,6 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                         .map(|(_, v)| v)
                         .unwrap_or(Value::Nil)
                 }
-                (Value::Function(f), Value::List(args)) => f.call(vec![Value::List(args)]),
                 _ => Value::Nil,
             }
         }
@@ -257,8 +255,7 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
 
 /// Execute source: lex → parse → eval_expr with a fresh mutable environment.
 pub fn execute(src: &str) -> Value {
-    let tokens = lex(src);
-    match parse(&tokens) {
+    match parse_src(src) {
         Ok(ast) => {
             let mut env = Environment::new();
             eval_expr(&mut env, &ast)
@@ -270,8 +267,7 @@ pub fn execute(src: &str) -> Value {
 /// Legacy wrapper kept for builtin_eval compatibility. Clones env so callers
 /// see an immutable view; assignments inside eval do not escape.
 pub fn eval(env: &Environment, src: &str) -> Value {
-    let tokens = lex(src);
-    match parse(&tokens) {
+    match parse_src(src) {
         Ok(ast) => {
             let mut local = env.clone();
             eval_expr(&mut local, &ast)
@@ -282,8 +278,7 @@ pub fn eval(env: &Environment, src: &str) -> Value {
 
 /// Run source in an existing mutable environment so variable assignments persist across calls.
 pub fn exec_in(env: &mut Environment, src: &str) -> Value {
-    let tokens = lex(src);
-    match parse(&tokens) {
+    match parse_src(src) {
         Ok(ast) => eval_expr(env, &ast),
         Err(e) => {
             eprintln!("parse error: {}", e);
