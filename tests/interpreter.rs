@@ -63,3 +63,19 @@ fn test_neg() {
 fn test_each() {
     assert_eq!(execute("each 1,2,3:fn x=>x*2"), Value::Number(6.0));
 }
+
+#[test]
+fn test_closure_capture() {
+    // function body should capture variables from defining scope
+    assert_eq!(execute("x=10;fn add_x n=>n+x;add_x 5"), Value::Number(15.0));
+}
+
+#[test]
+fn test_string_concat() {
+    assert_eq!(execute("\"hello\"+\"world\""), Value::String("helloworld".into()));
+}
+
+#[test]
+fn test_div_by_zero() {
+    assert_eq!(execute("1/0"), Value::Nil);
+}

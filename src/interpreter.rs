@@ -103,6 +103,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             eval_binop(*op, l, r)
         }
         Expr::FnDef { name, params, body } => {
+            env.define(name.clone(), Value::Nil);  // placeholder so name is in env before capture
             let f = Value::Function(Function {
                 params: params.clone(),
                 body: *body.clone(),
@@ -164,7 +165,9 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
         ('+', Value::Number(l), Value::Number(r)) => Value::Number(l + r),
         ('-', Value::Number(l), Value::Number(r)) => Value::Number(l - r),
         ('*', Value::Number(l), Value::Number(r)) => Value::Number(l * r),
-        ('/', Value::Number(l), Value::Number(r)) => Value::Number(l / r),
+        ('/', Value::Number(l), Value::Number(r)) => {
+            if *r == 0.0 { Value::Nil } else { Value::Number(l / r) }
+        }
         ('>', Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
         ('<', Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
         ('+', Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
