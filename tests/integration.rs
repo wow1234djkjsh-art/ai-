@@ -1,5 +1,18 @@
 use c_dsl::builtins::{model, builtin_eval};
 use c_dsl::interpreter::{Environment, Value};
+use sha2::{Sha256, Digest};
+
+/// Clear a specific cache entry so tests start with known state.
+fn clear_cache_for(model_id: &str, prompt: &str, format: &str) {
+    let raw_key = format!("{}:{}:{}", model_id, prompt, format);
+    let cache_key = format!("{:x}", Sha256::digest(raw_key.as_bytes()));
+    if let Some(mut path) = dirs::home_dir() {
+        path.push(".c-dsl");
+        path.push("cache");
+        path.push(format!("{}.json", cache_key));
+        let _ = std::fs::remove_file(path); // ignore if absent
+    }
+}
 
 /// Verifies the full model → eval pipeline:
 /// model(format:"code") returns a C-DSL expression, builtin_eval evaluates it.
@@ -27,38 +40,61 @@ fn test_model_eval_pipeline() {
 #[test]
 fn test_model_caching_consistency() {
     let env = Environment::new();
+    let model_id = "m";
+    let prompt = "cache test prompt";
+    let fmt = "code";
+
+    // Clear any stale cache to guarantee cold-cache first call
+    clear_cache_for(model_id, prompt, fmt);
+
     let args = || vec![
-        Value::String("m".to_string()),
-        Value::String("cache test prompt".to_string()),
-        Value::String("code".to_string()),
+        Value::String(model_id.to_string()),
+        Value::String(prompt.to_string()),
+        Value::String(fmt.to_string()),
     ];
 
+    // First call: cache miss — computes and stores
     let first = model(&env, args());
+    // Second call: cache hit — must return same value
     let second = model(&env, args());
 
-    // Both calls must return equal Values (second from cache)
     assert_eq!(first, second);
     assert!(matches!(first, Value::String(_)));
 }
 
-/// Verifies force:true bypasses cache but returns same deterministic value.
+/// Verifies force:true bypasses cache and recomputes the correct stub output.
 #[test]
-fn test_model_force_flag() {
+fn test_model_force_bypasses_cache() {
     let env = Environment::new();
-    let base_args = vec![
-        Value::String("m".to_string()),
-        Value::String("force flag prompt".to_string()),
-        Value::String("code".to_string()),
-    ];
-    let mut force_args = base_args.clone();
-    force_args.push(Value::String("true".to_string()));
+    let model_id = "m";
+    let prompt = "force flag prompt";
+    let fmt = "code";
 
-    let normal = model(&env, base_args);
-    let forced = model(&env, force_args);
+    // Clear cache so we start fresh
+    clear_cache_for(model_id, prompt, fmt);
 
-    // Both must be String values
-    assert!(matches!(normal, Value::String(_)));
-    assert!(matches!(forced, Value::String(_)));
-    // Stub is deterministic → force and normal return same value
-    assert_eq!(normal, forced);
+    let make_args = |force: bool| {
+        let mut v = vec![
+            Value::String(model_id.to_string()),
+            Value::String(prompt.to_string()),
+            Value::String(fmt.to_string()),
+        ];
+        if force {
+            v.push(Value::String("true".to_string()));
+        }
+        v
+    };
+
+    // Normal call: computes and caches
+    let cached_val = model(&env, make_args(false));
+    assert!(matches!(cached_val, Value::String(_)));
+
+    // Force call: bypasses cache, recomputes — must equal the stub's formula
+    let forced_val = model(&env, make_args(true));
+    assert!(matches!(forced_val, Value::String(_)));
+
+    // Stub is deterministic: both must equal prompt.len().to_string()
+    let expected = Value::String(prompt.len().to_string());
+    assert_eq!(cached_val, expected, "cached value must match stub formula");
+    assert_eq!(forced_val, expected, "forced value must match stub formula");
 }
