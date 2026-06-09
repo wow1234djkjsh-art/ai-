@@ -1,5 +1,6 @@
 // Built-in functions for the DSL interpreter
 
+use sha2::{Sha256, Digest};
 use crate::interpreter::Value;
 use crate::cache::{get_cached, set_cached};
 
@@ -38,15 +39,19 @@ pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value 
         false
     };
 
-    let cache_key = format!("{}:{}:{}:{}", model_id, prompt, format, force);
+    let raw_key = format!("{}:{}:{}", model_id, prompt, format);
+    let cache_key = format!("{:x}", Sha256::digest(raw_key.as_bytes()));
     let cached = get_cached(&cache_key);
-    if cached.is_some() && !force {
-        return Value::String(cached.unwrap());
+    if !force {
+        if let Some(hit) = cached {
+            return Value::String(hit);
+        }
     }
 
     let response = if format == "code" {
         format!("// Generated code for {}: {}", model_id, prompt)
     } else {
+        // Stub: echo prompt until real API integration is added
         prompt.to_string()
     };
 
