@@ -86,3 +86,21 @@ fn test_print_pipeline() {
     let result = execute("5|print");
     assert_eq!(result, Value::Number(5.0));
 }
+
+#[test]
+fn test_recursive_function() {
+    // fact(3) = 3 * 2 * 1 = 6
+    assert_eq!(execute("fn fact n=>?n>0:n*fact n-1:1;fact 3"), Value::Number(6.0));
+}
+
+#[test]
+fn test_conditional_in_fn_body() {
+    assert_eq!(execute("fn abs x=>?x>0:x:0-x;abs(5)"),  Value::Number(5.0));
+    assert_eq!(execute("fn abs x=>?x>0:x:0-x;n=0-3;abs n"), Value::Number(3.0));
+}
+
+#[test]
+fn test_lambda_with_conditional() {
+    // each item: if >1 double it, else keep
+    assert_eq!(execute("each 1,2,3:fn x=>?x>1:x*2:x"), Value::Number(6.0));
+}

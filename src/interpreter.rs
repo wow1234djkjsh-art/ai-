@@ -181,7 +181,19 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
         "eval"  => crate::builtins::builtin_eval(env, args),
         "model" => crate::builtins::model(env, args),
         _ => match env.find(name) {
-            Some(Value::Function(f)) => f.call(args),
+            Some(Value::Function(f)) => {
+                // Inject self-reference into parent env so recursive calls resolve correctly.
+                // f.parent_env was snapshotted at definition time and may contain only Nil
+                // for the function's own name (letrec gap). We patch it here at call time.
+                let mut new_parent = (*f.parent_env).clone();
+                new_parent.define(name.to_string(), Value::Function(f.clone()));
+                let f_with_self = Function {
+                    params: f.params.clone(),
+                    body: f.body.clone(),
+                    parent_env: Rc::new(new_parent),
+                };
+                f_with_self.call(args)
+            }
             _ => Value::Nil,
         }
     }

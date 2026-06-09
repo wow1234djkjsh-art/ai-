@@ -82,13 +82,21 @@ impl<'a> Parser<'a> {
                 if self.tokens.get(self.pos + 1) == Some(&Token::Sym('=')) {
                     self.advance(); // Ident
                     self.advance(); // '='
-                    let value = self.parse_pipe()?;
+                    let value = self.parse_expr()?;
                     Ok(Expr::Assign { name, value: Box::new(value) })
                 } else {
-                    self.parse_pipe()
+                    self.parse_expr()
                 }
             }
-            _ => self.parse_pipe(),
+            _ => self.parse_expr(),
+        }
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, String> {
+        if self.peek() == &Token::Sym('?') {
+            self.parse_if()
+        } else {
+            self.parse_pipe()
         }
     }
 
@@ -100,7 +108,7 @@ impl<'a> Parser<'a> {
         };
         let params = self.parse_params()?;
         self.eat_arrow()?;
-        let body = self.parse_pipe()?;
+        let body = self.parse_expr()?;
         Ok(Expr::FnDef { name, params, body: Box::new(body) })
     }
 
@@ -108,7 +116,7 @@ impl<'a> Parser<'a> {
         self.advance(); // Fn
         let params = self.parse_params()?;
         self.eat_arrow()?;
-        let body = self.parse_add()?;
+        let body = self.parse_expr()?;
         Ok(Expr::Lambda { params, body: Box::new(body) })
     }
 
@@ -143,9 +151,9 @@ impl<'a> Parser<'a> {
         self.advance(); // '?'
         let cond  = self.parse_cmp()?;
         self.eat_sym(':')?;
-        let then  = self.parse_pipe()?;
+        let then  = self.parse_expr()?;
         self.eat_sym(':')?;
-        let else_ = self.parse_pipe()?;
+        let else_ = self.parse_expr()?;
         Ok(Expr::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) })
     }
 
