@@ -20,7 +20,14 @@ impl PartialEq for Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Function(a), Value::Function(b)) => a.params == b.params && a.body == b.body,
             (Value::List(a),  Value::List(b))  => a == b,
-            (Value::Dict(a),  Value::Dict(b))  => a == b,
+            (Value::Dict(a),  Value::Dict(b))  => {
+                if a.len() != b.len() { return false; }
+                a.iter().all(|(k, v)| {
+                    b.iter().find(|(bk, _)| bk == k)
+                        .map(|(_, bv)| bv == v)
+                        .unwrap_or(false)
+                })
+            }
             _ => false,
         }
     }
@@ -185,6 +192,9 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             let idx_val = eval_expr(env, index);
             match (obj_val, idx_val) {
                 (Value::List(items), Value::Number(n)) => {
+                    if n < 0.0 || n.fract() != 0.0 {
+                        return Value::Nil;
+                    }
                     items.get(n as usize).cloned().unwrap_or(Value::Nil)
                 }
                 (Value::Dict(pairs), Value::String(key)) => {

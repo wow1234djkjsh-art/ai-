@@ -154,3 +154,19 @@ fn test_dict_missing_key() {
 fn test_list_in_fn_call() {
     assert_eq!(execute("fn first lst=>lst[0];first [7,8,9]"), Value::Number(7.0));
 }
+
+#[test]
+fn test_list_negative_index_returns_nil() {
+    assert_eq!(execute("[1,2,3][-1]"), Value::Nil);
+}
+
+#[test]
+fn test_list_fractional_index_returns_nil() {
+    assert_eq!(execute("[10,20,30][1.5]"), Value::Nil);
+}
+
+#[test]
+fn test_dict_equality_order_independent() {
+    // {a:1, b:2} should equal {b:2, a:1}
+    assert_eq!(execute("{a:1,b:2}"), execute("{b:2,a:1}"));
+}
