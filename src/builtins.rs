@@ -61,12 +61,12 @@ pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value 
 }
 
 #[allow(dead_code)]
-/// Execute a C-DSL code string at runtime and return its result.
-/// Signature: eval "<code-string>"
-pub fn builtin_eval(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value {
+/// Evaluate a single C-DSL expression string in the caller's environment.
+/// Signature: eval "<expression-string>"
+pub fn builtin_eval(env: &crate::interpreter::Environment, args: Vec<Value>) -> Value {
     let code = match args.into_iter().next() {
         Some(Value::String(s)) => s,
         _ => return Value::Nil,
     };
-    crate::interpreter::execute(&code)
+    crate::interpreter::eval(env, &code)
 }

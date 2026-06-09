@@ -29,3 +29,21 @@ fn test_builtin_eval_nil_on_empty() {
     let result = builtin_eval(&env, vec![]);
     assert_eq!(result, Value::Nil);
 }
+
+#[test]
+fn test_builtin_eval_arithmetic() {
+    use c_dsl::builtins::builtin_eval;
+    use c_dsl::interpreter::{Environment, Value};
+    let env = Environment::new();
+    let result = builtin_eval(&env, vec![Value::String("2 + 3".to_string())]);
+    assert_eq!(result, Value::Number(5.0));
+}
+
+#[test]
+fn test_builtin_eval_non_string_returns_nil() {
+    use c_dsl::builtins::builtin_eval;
+    use c_dsl::interpreter::{Environment, Value};
+    let env = Environment::new();
+    let result = builtin_eval(&env, vec![Value::Number(99.0)]);
+    assert_eq!(result, Value::Nil);
+}
