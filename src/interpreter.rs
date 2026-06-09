@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use crate::lexer::lex;
+use crate::parser::{parse, Expr};
 
-// Runtime value type
 #[derive(Clone)]
 pub enum Value {
     Number(f64),
     String(String),
-    #[allow(dead_code)]
     Function(Function),
     Nil,
 }
@@ -26,140 +26,184 @@ impl PartialEq for Value {
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Number(n) => write!(f, "Number({})", n),
-            Value::String(s) => write!(f, "String({})", s),
-            Value::Function(fun) => write!(f, "Function({:?})", fun),
-            Value::Nil => write!(f, "Nil"),
+            Value::Number(n)   => write!(f, "Number({})", n),
+            Value::String(s)   => write!(f, "String({})", s),
+            Value::Function(_) => write!(f, "Function(...)"),
+            Value::Nil         => write!(f, "Nil"),
         }
     }
 }
 
-// Environment for value lookups (supports nested scopes)
 #[derive(Clone, Debug)]
 pub struct Environment {
     name_value: HashMap<String, Value>,
     parent: Option<Rc<Environment>>,
 }
+
 impl Default for Environment {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
+
 impl Environment {
     pub fn new() -> Self {
-        Environment {
-            name_value: HashMap::new(),
-            parent: None,
-        }
+        Environment { name_value: HashMap::new(), parent: None }
     }
-    #[allow(dead_code)]
     pub fn with_parent(parent: Environment) -> Self {
-        Environment {
-            name_value: HashMap::new(),
-            parent: Some(Rc::new(parent)),
-        }
+        Environment { name_value: HashMap::new(), parent: Some(Rc::new(parent)) }
     }
     pub fn find(&self, name: &str) -> Option<Value> {
-        self.name_value
-            .get(name)
-            .cloned()
+        self.name_value.get(name).cloned()
             .or_else(|| self.parent.as_ref().and_then(|p| p.find(name)))
     }
-    #[allow(dead_code)]
     pub fn define(&mut self, name: String, value: Value) {
         self.name_value.insert(name, value);
     }
 }
 
-// Function type with parent environment for closures
 #[derive(Clone, Debug)]
 pub struct Function {
     pub params: Vec<String>,
-    pub body: String,
-    #[allow(dead_code)]
+    pub body: Expr,
     pub parent_env: Rc<Environment>,
 }
+
 impl Function {
-    #[allow(dead_code)]
     pub fn call(&self, args: Vec<Value>) -> Value {
-        let parent_map = self.parent_env.name_value.clone();
-        let mut env = Environment::new();
-        for (k, v) in parent_map {
-            env.define(k, v);
-        }
+        let parent = (*self.parent_env).clone();
+        let mut env = Environment::with_parent(parent);
         for (param, arg) in self.params.iter().zip(args) {
             env.define(param.clone(), arg);
         }
-        eval(&env, &self.body)
+        eval_expr(&mut env, &self.body)
     }
 }
 
-// Evaluate an expression string
-pub fn eval(env: &Environment, expr: &str) -> Value {
-    let trimmed = expr.trim();
-    // Number literal
-    if let Ok(n) = trimmed.parse::<f64>() {
-        return Value::Number(n);
-    }
-    // String literal (quoted)
-    if trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        return Value::String(inner.to_string());
-    }
-    // Simple binary operators
-    // helper closure to resolve a term: try number literal, then variable lookup
-    let resolve = |term: &str| -> Option<f64> {
-        if let Ok(n) = term.parse::<f64>() {
-            Some(n)
-        } else if let Some(Value::Number(n)) = env.find(term) {
-            Some(n)
-        } else {
-            None
+pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
+    match expr {
+        Expr::Number(n)  => Value::Number(*n),
+        Expr::Str(s)     => Value::String(s.clone()),
+        Expr::Ident(name) => env.find(name).unwrap_or(Value::Nil),
+        Expr::Neg(inner) => match eval_expr(env, inner) {
+            Value::Number(n) => Value::Number(-n),
+            _ => Value::Nil,
+        },
+        Expr::Block(stmts) => {
+            let mut last = Value::Nil;
+            for stmt in stmts { last = eval_expr(env, stmt); }
+            last
         }
-    };
-
-    if let Some(pos) = trimmed.find('+') {
-        let left = trimmed[..pos].trim();
-        let right = trimmed[pos + 1..].trim();
-        if let (Some(l), Some(r)) = (resolve(left), resolve(right)) {
-            return Value::Number(l + r);
+        Expr::Assign { name, value } => {
+            let val = eval_expr(env, value);
+            env.define(name.clone(), val.clone());
+            val
+        }
+        Expr::BinOp { op, left, right } => {
+            let l = eval_expr(env, left);
+            let r = eval_expr(env, right);
+            eval_binop(*op, l, r)
+        }
+        Expr::FnDef { name, params, body } => {
+            let f = Value::Function(Function {
+                params: params.clone(),
+                body: *body.clone(),
+                parent_env: Rc::new(env.clone()),
+            });
+            env.define(name.clone(), f.clone());
+            f
+        }
+        Expr::Lambda { params, body } => {
+            Value::Function(Function {
+                params: params.clone(),
+                body: *body.clone(),
+                parent_env: Rc::new(env.clone()),
+            })
+        }
+        Expr::Call { name, args } => {
+            let eval_args: Vec<Value> = args.iter().map(|a| eval_expr(env, a)).collect();
+            call_fn(env, name, eval_args)
+        }
+        Expr::If { cond, then, else_ } => {
+            let truthy = match eval_expr(env, cond) {
+                Value::Number(n) => n != 0.0,
+                Value::String(s) => !s.is_empty(),
+                Value::Nil       => false,
+                Value::Function(_) => true,
+            };
+            if truthy { eval_expr(env, then) } else { eval_expr(env, else_) }
+        }
+        Expr::Pipe { left, right } => {
+            let left_val = eval_expr(env, left);
+            match right.as_ref() {
+                Expr::Ident(name) => call_fn(env, name, vec![left_val]),
+                Expr::Call { name, args } => {
+                    let mut eval_args: Vec<Value> =
+                        args.iter().map(|a| eval_expr(env, a)).collect();
+                    eval_args.insert(0, left_val);
+                    call_fn(env, name, eval_args)
+                }
+                _ => Value::Nil,
+            }
+        }
+        Expr::Each { items, func } => {
+            let func_val = eval_expr(env, func);
+            let mut last = Value::Nil;
+            for item in items {
+                let item_val = eval_expr(env, item);
+                last = match &func_val {
+                    Value::Function(f) => f.call(vec![item_val]),
+                    _ => Value::Nil,
+                };
+            }
+            last
         }
     }
-    if let Some(pos) = trimmed.find('-') {
-        let left = trimmed[..pos].trim();
-        let right = trimmed[pos + 1..].trim();
-        if let (Some(l), Some(r)) = (resolve(left), resolve(right)) {
-            return Value::Number(l - r);
-        }
-    }
-    if let Some(pos) = trimmed.find('*') {
-        let left = trimmed[..pos].trim();
-        let right = trimmed[pos + 1..].trim();
-        if let (Some(l), Some(r)) = (resolve(left), resolve(right)) {
-            return Value::Number(l * r);
-        }
-    }
-    if let Some(pos) = trimmed.find('/') {
-        let left = trimmed[..pos].trim();
-        let right = trimmed[pos + 1..].trim();
-        if let (Some(l), Some(r)) = (resolve(left), resolve(right)) {
-            return Value::Number(l / r);
-        }
-    }
-    // Variable lookup
-    if let Some(v) = env.find(trimmed) {
-        return v;
-    }
-    Value::Nil
 }
 
-// Execute source code
-pub fn execute(code: &str) -> Value {
-    let env = Environment::new();
-    eval(&env, code)
+fn eval_binop(op: char, left: Value, right: Value) -> Value {
+    match (op, &left, &right) {
+        ('+', Value::Number(l), Value::Number(r)) => Value::Number(l + r),
+        ('-', Value::Number(l), Value::Number(r)) => Value::Number(l - r),
+        ('*', Value::Number(l), Value::Number(r)) => Value::Number(l * r),
+        ('/', Value::Number(l), Value::Number(r)) => Value::Number(l / r),
+        ('>', Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
+        ('<', Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
+        ('+', Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
+        _ => Value::Nil,
+    }
 }
 
-// Run tests placeholder
+fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
+    match name {
+        "print" => { args.into_iter().next().unwrap_or(Value::Nil) }
+        "eval"  => crate::builtins::builtin_eval(env, args),
+        "model" => crate::builtins::model(env, args),
+        _ => match env.find(name) {
+            Some(Value::Function(f)) => f.call(args),
+            _ => Value::Nil,
+        }
+    }
+}
+
+/// Execute source: lex → parse → eval_expr with a fresh mutable environment.
+pub fn execute(src: &str) -> Value {
+    let tokens = lex(src);
+    match parse(&tokens) {
+        Ok(ast) => { let mut env = Environment::new(); eval_expr(&mut env, &ast) }
+        Err(_)  => Value::Nil,
+    }
+}
+
+/// Legacy wrapper kept for builtin_eval compatibility. Clones env so callers
+/// see an immutable view; assignments inside eval do not escape.
+pub fn eval(env: &Environment, src: &str) -> Value {
+    let tokens = lex(src);
+    match parse(&tokens) {
+        Ok(ast) => { let mut local = env.clone(); eval_expr(&mut local, &ast) }
+        Err(_)  => Value::Nil,
+    }
+}
+
+/// Placeholder kept for main.rs --test flag compatibility.
 pub fn run_tests() {
     println!("Running tests...");
 }
