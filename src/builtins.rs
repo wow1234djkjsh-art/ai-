@@ -59,3 +59,14 @@ pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value 
     set_cached(&cache_key, &response);
     Value::String(response)
 }
+
+#[allow(dead_code)]
+/// Execute a C-DSL code string at runtime and return its result.
+/// Signature: eval "<code-string>"
+pub fn builtin_eval(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value {
+    let code = match args.into_iter().next() {
+        Some(Value::String(s)) => s,
+        _ => return Value::Nil,
+    };
+    crate::interpreter::execute(&code)
+}
