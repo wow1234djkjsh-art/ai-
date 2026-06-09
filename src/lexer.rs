@@ -7,6 +7,9 @@ pub enum Token {
     Ident(String),
     Fn,
     Each,
+    And,
+    Or,
+    Not,
     Arrow,
     Sep,
     Sym(char),
@@ -39,7 +42,8 @@ pub fn lex(src: &str) -> Vec<Token> {
                     i += 1;
                 }
             }
-            '+' | '-' | '*' | '/' | '>' | '<' | '?' | ':' | '|' | ',' | '(' | ')' => {
+            '+' | '-' | '*' | '/' | '>' | '<' | '?' | ':' | '|' | ',' | '(' | ')'
+            | '[' | ']' | '{' | '}' => {
                 tokens.push(Token::Sym(chars[i]));
                 i += 1;
             }
@@ -72,8 +76,17 @@ pub fn lex(src: &str) -> Vec<Token> {
                 match word.as_str() {
                     "fn" => tokens.push(Token::Fn),
                     "each" => tokens.push(Token::Each),
+                    "and" => tokens.push(Token::And),
+                    "or" => tokens.push(Token::Or),
+                    "not" => tokens.push(Token::Not),
                     _ => tokens.push(Token::Ident(word)),
                 }
+            }
+            '\\' if i + 1 < chars.len() && chars[i + 1] == '\n' => {
+                i += 2; // backslash + newline → skip both, no Sep emitted
+            }
+            '\\' => {
+                i += 1;
             }
             _ => {
                 i += 1;

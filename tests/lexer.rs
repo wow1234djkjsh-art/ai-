@@ -95,3 +95,33 @@ fn test_lex_each() {
         ]
     );
 }
+
+#[test]
+fn test_lex_brackets() {
+    let tokens = lex("[1,2]");
+    assert!(tokens.iter().any(|t| t == &Token::Sym('[')));
+    assert!(tokens.iter().any(|t| t == &Token::Sym(']')));
+}
+
+#[test]
+fn test_lex_braces() {
+    let tokens = lex("{a:1}");
+    assert!(tokens.iter().any(|t| t == &Token::Sym('{')));
+    assert!(tokens.iter().any(|t| t == &Token::Sym('}')));
+}
+
+#[test]
+fn test_lex_logical_keywords() {
+    let tokens = lex("a and b or not c");
+    assert!(tokens.iter().any(|t| t == &Token::And));
+    assert!(tokens.iter().any(|t| t == &Token::Or));
+    assert!(tokens.iter().any(|t| t == &Token::Not));
+}
+
+#[test]
+fn test_lex_line_continuation() {
+    // backslash + newline must not emit a Sep token
+    let tokens = lex("1\\\n2");
+    let seps: Vec<_> = tokens.iter().filter(|t| **t == Token::Sep).collect();
+    assert!(seps.is_empty(), "backslash continuation must suppress the newline Sep");
+}
