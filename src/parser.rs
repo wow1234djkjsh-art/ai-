@@ -18,9 +18,9 @@ pub enum Expr {
 /// `fn <name> <param1> <param2> ... => <body>`
 pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
     let mut iter = tokens.iter().peekable();
-    // Expect leading "fn" symbol
+    // Expect leading "fn" keyword
     match iter.next() {
-        Some(Token::Symbol(s)) if s == "fn" => {}
+        Some(Token::Fn) => {}
         _ => return Err("expected 'fn' keyword".into()),
     }
     // Function name
@@ -28,12 +28,12 @@ pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
         Some(Token::Ident(id)) => id.clone(),
         _ => return Err("expected function name identifier".into()),
     };
-    // Collect parameters until we see the "=>" symbol
+    // Collect parameters until we see the Arrow token
     let mut params = Vec::new();
     while let Some(tok) = iter.peek() {
         match tok {
-            Token::Symbol(sym) if sym == "=>" => {
-                // consume the symbol and break
+            Token::Arrow => {
+                // consume the arrow and break
                 iter.next();
                 break;
             }
@@ -48,10 +48,14 @@ pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
     let mut body_parts = Vec::new();
     for tok in iter {
         match tok {
-            Token::Ident(s) | Token::Symbol(s) => body_parts.push(s.clone()),
+            Token::Ident(s) => body_parts.push(s.clone()),
+            Token::Sym(c) => body_parts.push(c.to_string()),
             Token::Number(n) => body_parts.push(n.to_string()),
-            Token::String(s) => body_parts.push(s.clone()),
-            Token::Newline => body_parts.push("\n".to_string()),
+            Token::Str(s) => body_parts.push(s.clone()),
+            Token::Sep => body_parts.push("\n".to_string()),
+            Token::Fn => body_parts.push("fn".to_string()),
+            Token::Each => body_parts.push("each".to_string()),
+            Token::Arrow => body_parts.push("=>".to_string()),
             Token::Eof => break,
         }
     }
