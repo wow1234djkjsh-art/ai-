@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use std::path::PathBuf;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::fs;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use std::path::PathBuf;
 
 pub fn cache_path(key: &str) -> PathBuf {
     let mut dir = dirs::home_dir().expect("no home dir");

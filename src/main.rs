@@ -1,9 +1,9 @@
 use clap::Parser;
-mod lexer;
-mod parser;
-mod interpreter;
 mod builtins;
 mod cache;
+mod interpreter;
+mod lexer;
+mod parser;
 
 #[derive(Parser)]
 #[command(name = "c-dsl")]

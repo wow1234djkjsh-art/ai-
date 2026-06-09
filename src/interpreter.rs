@@ -40,6 +40,11 @@ pub struct Environment {
     name_value: HashMap<String, Value>,
     parent: Option<Rc<Environment>>,
 }
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Environment {
     pub fn new() -> Self {
         Environment {

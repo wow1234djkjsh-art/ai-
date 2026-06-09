@@ -5,7 +5,11 @@ use crate::lexer::Token;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    FnDef { name: String, params: Vec<String>, body: String },
+    FnDef {
+        name: String,
+        params: Vec<String>,
+        body: String,
+    },
     // Future expression types can be added here
 }
 
@@ -42,7 +46,7 @@ pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
     }
     // The rest of the tokens constitute the body (joined with spaces)
     let mut body_parts = Vec::new();
-    while let Some(tok) = iter.next() {
+    for tok in iter {
         match tok {
             Token::Ident(s) | Token::Symbol(s) => body_parts.push(s.clone()),
             Token::Number(n) => body_parts.push(n.to_string()),

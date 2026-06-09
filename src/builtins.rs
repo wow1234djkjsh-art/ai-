@@ -1,8 +1,8 @@
 // Built-in functions for the DSL interpreter
 
-use sha2::{Sha256, Digest};
-use crate::interpreter::Value;
 use crate::cache::{get_cached, set_cached};
+use crate::interpreter::Value;
+use sha2::{Digest, Sha256};
 
 #[allow(dead_code)]
 /// Call the model primitive.
@@ -32,10 +32,7 @@ pub fn model(_env: &crate::interpreter::Environment, args: Vec<Value>) -> Value 
         ""
     };
     let force = if args.len() > 3 {
-        match &args[3] {
-            Value::String(s) if s == "true" => true,
-            _ => false,
-        }
+        matches!(&args[3], Value::String(s) if s == "true")
     } else {
         false
     };
