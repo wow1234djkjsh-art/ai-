@@ -379,7 +379,11 @@ impl<'a> Parser<'a> {
             Token::Sym('{') => { let e = self.parse_dict()?; self.apply_subscript(e) }
             Token::Ident(name) => {
                 self.advance();
-                if self.peek() == &Token::Sym('(') {
+                if self.peek() == &Token::Sym('=') {
+                    self.advance(); // consume '='
+                    let value = self.parse_pipe()?;
+                    Ok(Expr::Assign { name, value: Box::new(value) })
+                } else if self.peek() == &Token::Sym('(') {
                     self.advance();
                     let args = self.parse_call_args_paren()?;
                     self.apply_subscript(Expr::Call { name, args })

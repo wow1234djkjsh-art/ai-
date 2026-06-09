@@ -202,13 +202,27 @@ fn test_logical_not_false() {
 }
 
 #[test]
-fn test_short_circuit_and() {
+fn test_and_false_lhs_returns_zero() {
     assert_eq!(execute("0 and 1>0"), Value::Number(0.0));
 }
 
 #[test]
-fn test_short_circuit_or() {
+fn test_or_true_lhs_returns_one() {
     assert_eq!(execute("1 or 0>1"), Value::Number(1.0));
+}
+
+#[test]
+fn test_short_circuit_and_skips_rhs() {
+    // if short-circuit works: x stays 0 (rhs not evaluated)
+    // if no short-circuit: x becomes 1 (rhs evaluated)
+    assert_eq!(execute("x=0; 0 and x=1; x"), Value::Number(0.0));
+}
+
+#[test]
+fn test_short_circuit_or_skips_rhs() {
+    // if short-circuit works: x stays 0 (rhs not evaluated)
+    // if no short-circuit: x becomes 1 (rhs evaluated)
+    assert_eq!(execute("x=0; 1 or x=1; x"), Value::Number(0.0));
 }
 
 #[test]
