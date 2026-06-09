@@ -8,8 +8,12 @@ fn test_lexer_simple() {
     let src = "fn add a b => a+b";
     let tokens = c_dsl::lexer::lex(src);
     // Expect 'fn' as Symbol, 'add' as Ident, etc.
-    assert!(tokens.iter().any(|t| matches!(t, c_dsl::lexer::Token::Ident(s) if s == "add")));
-    assert!(tokens.iter().any(|t| matches!(t, c_dsl::lexer::Token::Symbol(s) if s == "fn")));
+    assert!(tokens
+        .iter()
+        .any(|t| matches!(t, c_dsl::lexer::Token::Ident(s) if s == "add")));
+    assert!(tokens
+        .iter()
+        .any(|t| matches!(t, c_dsl::lexer::Token::Fn)));
 }
 
 #[test]
