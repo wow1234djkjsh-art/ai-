@@ -26,7 +26,7 @@ fn test_parse_binop_add() {
     assert_eq!(
         p("1+2"),
         Expr::Block(vec![Expr::BinOp {
-            op: '+',
+            op: "+".to_string(),
             left: Box::new(Expr::Number(1.0)),
             right: Box::new(Expr::Number(2.0))
         }])
@@ -49,7 +49,7 @@ fn test_parse_fn_def() {
             name: "add".into(),
             params: vec!["a".into(), "b".into()],
             body: Box::new(Expr::BinOp {
-                op: '+',
+                op: "+".to_string(),
                 left: Box::new(Expr::Ident("a".into())),
                 right: Box::new(Expr::Ident("b".into())),
             }),
@@ -85,7 +85,7 @@ fn test_parse_if() {
         p("?x>0:x:0"),
         Expr::Block(vec![Expr::If {
             cond: Box::new(Expr::BinOp {
-                op: '>',
+                op: ">".to_string(),
                 left: Box::new(Expr::Ident("x".into())),
                 right: Box::new(Expr::Number(0.0))
             }),
@@ -147,7 +147,7 @@ fn test_parse_if_pipe_in_then() {
         p("?x>0:a|b:c"),
         Expr::Block(vec![Expr::If {
             cond: Box::new(Expr::BinOp {
-                op: '>',
+                op: ">".to_string(),
                 left: Box::new(Expr::Ident("x".into())),
                 right: Box::new(Expr::Number(0.0))
             }),

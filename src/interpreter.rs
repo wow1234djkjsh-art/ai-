@@ -141,7 +141,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             if let Value::Error(_) = &l { return l; }
             let r = eval_expr(env, right);
             if let Value::Error(_) = &r { return r; }
-            eval_binop(*op, l, r)
+            eval_binop(op, l, r)
         }
         Expr::FnDef { name, params, body } => {
             env.define(name.clone(), Value::Nil); // placeholder so name is in env before capture
@@ -309,21 +309,21 @@ fn is_truthy(val: &Value) -> bool {
     }
 }
 
-fn eval_binop(op: char, left: Value, right: Value) -> Value {
+fn eval_binop(op: &str, left: Value, right: Value) -> Value {
     match (op, &left, &right) {
-        ('+', Value::Number(l), Value::Number(r)) => Value::Number(l + r),
-        ('-', Value::Number(l), Value::Number(r)) => Value::Number(l - r),
-        ('*', Value::Number(l), Value::Number(r)) => Value::Number(l * r),
-        ('/', Value::Number(l), Value::Number(r)) => {
+        ("+", Value::Number(l), Value::Number(r)) => Value::Number(l + r),
+        ("-", Value::Number(l), Value::Number(r)) => Value::Number(l - r),
+        ("*", Value::Number(l), Value::Number(r)) => Value::Number(l * r),
+        ("/", Value::Number(l), Value::Number(r)) => {
             if *r == 0.0 {
                 Value::Error("division by zero".into())
             } else {
                 Value::Number(l / r)
             }
         }
-        ('>', Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
-        ('<', Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
-        ('+', Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
+        (">", Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
+        ("<", Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
+        ("+", Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
         _ => Value::Error(format!(
             "type error: '{}' not supported for these types",
             op

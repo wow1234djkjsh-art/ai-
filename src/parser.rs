@@ -11,7 +11,7 @@ pub enum Expr {
         value: Box<Expr>,
     },
     BinOp {
-        op: char,
+        op: String,
         left: Box<Expr>,
         right: Box<Expr>,
     },
@@ -306,20 +306,43 @@ impl<'a> Parser<'a> {
             self.advance();
             Ok(Expr::Not(Box::new(self.parse_not()?)))
         } else {
-            self.parse_cmp()
+            self.parse_eq()
         }
+    }
+
+    fn parse_eq(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_cmp()?;
+        loop {
+            let op = match self.peek().clone() {
+                Token::Eq  => "==",
+                Token::Neq => "!=",
+                _          => break,
+            };
+            self.advance();
+            let right = self.parse_cmp()?;
+            left = Expr::BinOp {
+                op: op.to_string(),
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
     }
 
     fn parse_cmp(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_add()?;
-        while let Token::Sym(op) = self.peek().clone() {
-            if op != '>' && op != '<' {
-                break;
-            }
+        loop {
+            let op = match self.peek().clone() {
+                Token::Sym('>') => ">",
+                Token::Sym('<') => "<",
+                Token::Gte      => ">=",
+                Token::Lte      => "<=",
+                _               => break,
+            };
             self.advance();
             let right = self.parse_add()?;
             left = Expr::BinOp {
-                op,
+                op: op.to_string(),
                 left: Box::new(left),
                 right: Box::new(right),
             };
@@ -336,7 +359,7 @@ impl<'a> Parser<'a> {
             self.advance();
             let right = self.parse_mul()?;
             left = Expr::BinOp {
-                op,
+                op: op.to_string(),
                 left: Box::new(left),
                 right: Box::new(right),
             };
@@ -353,7 +376,7 @@ impl<'a> Parser<'a> {
             self.advance();
             let right = self.parse_unary()?;
             left = Expr::BinOp {
-                op,
+                op: op.to_string(),
                 left: Box::new(left),
                 right: Box::new(right),
             };
@@ -518,4 +541,66 @@ pub fn parse(tokens: &[Token]) -> Result<Expr, String> {
 pub fn parse_src(src: &str) -> Result<Expr, String> {
     let (tokens, spaces) = lex_with_spaces(src);
     Parser::new(&tokens, &spaces).parse_block()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binop(op: &str, left: Expr, right: Expr) -> Expr {
+        Expr::BinOp {
+            op: op.to_string(),
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    #[test]
+    fn parse_eq_expr() {
+        let ast = parse_src("1 == 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop("==", Expr::Number(1.0), Expr::Number(2.0))])
+        );
+    }
+    #[test]
+    fn parse_neq_expr() {
+        let ast = parse_src("1 != 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop("!=", Expr::Number(1.0), Expr::Number(2.0))])
+        );
+    }
+    #[test]
+    fn parse_gte_expr() {
+        let ast = parse_src("3 >= 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop(">=", Expr::Number(3.0), Expr::Number(2.0))])
+        );
+    }
+    #[test]
+    fn parse_lte_expr() {
+        let ast = parse_src("1 <= 5").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop("<=", Expr::Number(1.0), Expr::Number(5.0))])
+        );
+    }
+    #[test]
+    fn parse_gt_still_works() {
+        let ast = parse_src("3 > 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop(">", Expr::Number(3.0), Expr::Number(2.0))])
+        );
+    }
+    #[test]
+    fn parse_add_still_works() {
+        let ast = parse_src("1 + 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop("+", Expr::Number(1.0), Expr::Number(2.0))])
+        );
+    }
 }
