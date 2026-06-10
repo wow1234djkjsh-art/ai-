@@ -373,10 +373,7 @@ pub fn eval(env: &Environment, src: &str) -> Value {
 pub fn exec_in(env: &mut Environment, src: &str) -> Value {
     match parse_src(src) {
         Ok(ast) => eval_expr(env, &ast),
-        Err(e) => {
-            eprintln!("parse error: {}", e);
-            Value::Nil
-        }
+        Err(e) => Value::Error(format!("parse error: {}", e)),
     }
 }
 
