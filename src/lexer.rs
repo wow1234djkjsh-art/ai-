@@ -12,6 +12,7 @@ pub enum Token {
     Not,
     Arrow,
     Sep,
+    Dot,
     Sym(char),
     Eof,
 }
@@ -111,6 +112,12 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
             }
             '\\' if i + 1 < chars.len() && chars[i + 1] == '\n' => {
                 i += 2; // backslash + newline → skip both, no Sep emitted
+            }
+            '.' => {
+                tokens.push(Token::Dot);
+                spaces.push(had_space);
+                had_space = false;
+                i += 1;
             }
             '\\' => {
                 i += 1;
