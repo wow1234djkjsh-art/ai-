@@ -81,7 +81,8 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                     had_space = false;
                     i += 2;
                 } else {
-                    i += 1; // lone '!' ignored
+                    // lone '!' emits no token; had_space intentionally preserved
+                    i += 1;
                 }
             }
             '>' => {
@@ -221,5 +222,9 @@ mod tests {
     #[test]
     fn lex_arrow_unchanged() {
         assert_eq!(lex("=>"), vec![Token::Arrow, Token::Eof]);
+    }
+    #[test]
+    fn lex_bang_alone() {
+        assert_eq!(lex("!"), vec![Token::Eof]);
     }
 }
