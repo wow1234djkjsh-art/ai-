@@ -596,6 +596,14 @@ mod tests {
         );
     }
     #[test]
+    fn parse_lt_still_works() {
+        let ast = parse_src("1 < 2").unwrap();
+        assert_eq!(
+            ast,
+            Expr::Block(vec![binop("<", Expr::Number(1.0), Expr::Number(2.0))])
+        );
+    }
+    #[test]
     fn parse_add_still_works() {
         let ast = parse_src("1 + 2").unwrap();
         assert_eq!(
