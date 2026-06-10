@@ -188,3 +188,18 @@ fn lexer_emits_try_catch_end_tokens() {
     assert!(tokens.iter().any(|t| matches!(t, Token::Catch)), "missing Catch");
     assert!(tokens.iter().any(|t| matches!(t, Token::End)), "missing End");
 }
+
+#[test]
+fn parser_try_catch_basic() {
+    use c_dsl::parser::{parse_src, Expr};
+    let ast = parse_src("try\nbad_fn()\ncatch err\nprint(err)\nend").unwrap();
+    match ast {
+        Expr::Block(stmts) => match &stmts[0] {
+            Expr::TryCatch { catch_var, .. } => {
+                assert_eq!(catch_var, "err");
+            }
+            other => panic!("expected TryCatch, got {:?}", other),
+        },
+        other => panic!("expected Block, got {:?}", other),
+    }
+}

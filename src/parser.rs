@@ -49,6 +49,11 @@ pub enum Expr {
     And { left: Box<Expr>, right: Box<Expr> },
     Or  { left: Box<Expr>, right: Box<Expr> },
     Not (Box<Expr>),
+    TryCatch {
+        body: Box<Expr>,
+        catch_var: String,
+        handler: Box<Expr>,
+    },
 }
 
 struct Parser<'a> {
@@ -124,6 +129,7 @@ impl<'a> Parser<'a> {
             Token::Fn => self.parse_fn_def(),
             Token::Each => self.parse_each(),
             Token::Sym('?') => self.parse_if(),
+            Token::Try => self.parse_try_catch(),
             Token::Ident(name) => {
                 if self.tokens.get(self.pos + 1) == Some(&Token::Sym('=')) {
                     self.advance(); // Ident
@@ -225,6 +231,43 @@ impl<'a> Parser<'a> {
             cond: Box::new(cond),
             then: Box::new(then),
             else_: Box::new(else_),
+        })
+    }
+
+    fn parse_try_catch(&mut self) -> Result<Expr, String> {
+        self.advance(); // consume 'try'
+        while matches!(self.peek(), Token::Sep) { self.advance(); }
+
+        let mut body_stmts = Vec::new();
+        while !matches!(self.peek(), Token::Catch | Token::Eof) {
+            body_stmts.push(self.parse_stmt()?);
+            while matches!(self.peek(), Token::Sep) { self.advance(); }
+        }
+        if !matches!(self.peek(), Token::Catch) {
+            return Err("expected 'catch' after try body".into());
+        }
+        self.advance(); // consume 'catch'
+
+        let catch_var = match self.advance() {
+            Token::Ident(name) => name,
+            tok => return Err(format!("expected variable name after 'catch', got {:?}", tok)),
+        };
+        while matches!(self.peek(), Token::Sep) { self.advance(); }
+
+        let mut handler_stmts = Vec::new();
+        while !matches!(self.peek(), Token::End | Token::Eof) {
+            handler_stmts.push(self.parse_stmt()?);
+            while matches!(self.peek(), Token::Sep) { self.advance(); }
+        }
+        if !matches!(self.peek(), Token::End) {
+            return Err("expected 'end' after catch handler".into());
+        }
+        self.advance(); // consume 'end'
+
+        Ok(Expr::TryCatch {
+            body: Box::new(Expr::Block(body_stmts)),
+            catch_var,
+            handler: Box::new(Expr::Block(handler_stmts)),
         })
     }
 

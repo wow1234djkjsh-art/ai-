@@ -285,6 +285,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             if let Value::Error(_) = &v { return v; }
             Value::Number(if is_truthy(&v) { 0.0 } else { 1.0 })
         }
+        Expr::TryCatch { .. } => Value::Nil,
     }
 }
 
