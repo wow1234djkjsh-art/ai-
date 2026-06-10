@@ -203,3 +203,62 @@ fn parser_try_catch_basic() {
         other => panic!("expected Block, got {:?}", other),
     }
 }
+
+#[test]
+fn try_catch_catches_standalone_error() {
+    let result = execute(
+        "try\n\
+         unknown_fn()\n\
+         catch err\n\
+         err.message\n\
+         end"
+    );
+    match result {
+        Value::String(s) => assert!(s.contains("unknown function"), "got: {}", s),
+        other => panic!("expected String, got {:?}", other),
+    }
+}
+
+#[test]
+fn try_catch_no_error_runs_body() {
+    let result = execute(
+        "try\n\
+         42\n\
+         catch err\n\
+         0\n\
+         end"
+    );
+    assert_eq!(result, Value::Number(42.0));
+}
+
+#[test]
+fn try_catch_binds_error_to_var() {
+    let result = execute(
+        "try\n\
+         unknown_fn()\n\
+         catch e\n\
+         e.type\n\
+         end"
+    );
+    assert_eq!(result, Value::String("error".into()));
+}
+
+#[test]
+fn try_catch_nested() {
+    let result = execute(
+        "try\n\
+         try\n\
+         unknown_fn()\n\
+         catch inner\n\
+         inner.message\n\
+         end\n\
+         catch outer\n\
+         \"outer caught\"\n\
+         end"
+    );
+    // inner catch fires; outer never fires
+    match result {
+        Value::String(s) => assert!(s.contains("unknown function"), "got: {}", s),
+        other => panic!("expected String, got {:?}", other),
+    }
+}
