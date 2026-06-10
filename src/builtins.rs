@@ -79,6 +79,7 @@ pub fn builtin_print(args: Vec<Value>) -> Value {
                 Value::Nil => println!("nil"),
                 Value::Function(_) => println!("<fn>"),
                 Value::List(_) | Value::Dict(_) => println!("{}", v),
+                Value::Error(msg) => println!("<error: {}>", msg),
             }
             v
         }

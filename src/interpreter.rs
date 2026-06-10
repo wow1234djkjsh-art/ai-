@@ -129,9 +129,11 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::Assign { name, value } => {
             let val = eval_expr(env, value);
-            if let Value::Error(_) = &val { return val; }
             env.define(name.clone(), val.clone());
-            val
+            match val {
+                Value::Error(_) => Value::Nil,
+                other => other,
+            }
         }
         Expr::BinOp { op, left, right } => {
             let l = eval_expr(env, left);
@@ -244,7 +246,18 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                 _ => Value::Nil,
             }
         }
-        Expr::FieldAccess { .. } => Value::Nil,
+        Expr::FieldAccess { object, field } => {
+            let obj = eval_expr(env, object);
+            match (&obj, field.as_str()) {
+                (Value::Error(msg), "message") => Value::String(msg.clone()),
+                (Value::Error(_),   "type")    => Value::String("error".into()),
+                (Value::Dict(pairs), key) => pairs.iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or(Value::Nil),
+                _ => Value::Error(format!("no field '{}' on {}", field, obj)),
+            }
+        }
         Expr::And { left, right } => {
             let l = eval_expr(env, left);
             if let Value::Error(_) = &l { return l; }
