@@ -309,8 +309,21 @@ fn is_truthy(val: &Value) -> bool {
     }
 }
 
+fn type_name(v: &Value) -> &'static str {
+    match v {
+        Value::Number(_)   => "Number",
+        Value::String(_)   => "String",
+        Value::Nil         => "Nil",
+        Value::Function(_) => "Function",
+        Value::List(_)     => "List",
+        Value::Dict(_)     => "Dict",
+        Value::Error(_)    => "Error",
+    }
+}
+
 fn eval_binop(op: &str, left: Value, right: Value) -> Value {
     match (op, &left, &right) {
+        // arithmetic
         ("+", Value::Number(l), Value::Number(r)) => Value::Number(l + r),
         ("-", Value::Number(l), Value::Number(r)) => Value::Number(l - r),
         ("*", Value::Number(l), Value::Number(r)) => Value::Number(l * r),
@@ -321,13 +334,27 @@ fn eval_binop(op: &str, left: Value, right: Value) -> Value {
                 Value::Number(l / r)
             }
         }
-        (">", Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
-        ("<", Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
+        // string concat
         ("+", Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
-        _ => Value::Error(format!(
-            "type error: '{}' not supported for these types",
-            op
-        )),
+        // ordering (numbers only)
+        (">",  Value::Number(l), Value::Number(r)) => Value::Number(if l > r  { 1.0 } else { 0.0 }),
+        ("<",  Value::Number(l), Value::Number(r)) => Value::Number(if l < r  { 1.0 } else { 0.0 }),
+        (">=", Value::Number(l), Value::Number(r)) => Value::Number(if l >= r { 1.0 } else { 0.0 }),
+        (">=", _, _) => Value::Error("type error: '>=' requires numbers".into()),
+        ("<=", Value::Number(l), Value::Number(r)) => Value::Number(if l <= r { 1.0 } else { 0.0 }),
+        ("<=", _, _) => Value::Error("type error: '<=' requires numbers".into()),
+        // equality
+        ("==", Value::Number(l), Value::Number(r)) => Value::Number(if (l - r).abs() < f64::EPSILON { 1.0 } else { 0.0 }),
+        ("==", Value::String(l), Value::String(r)) => Value::Number(if l == r { 1.0 } else { 0.0 }),
+        ("==", Value::Nil, _) | ("==", _, Value::Nil) => Value::Error("type error: cannot compare nil with ==".into()),
+        ("==", _, _) => Value::Error(format!("type error: cannot compare {} with {}", type_name(&left), type_name(&right))),
+        // inequality
+        ("!=", Value::Number(l), Value::Number(r)) => Value::Number(if (l - r).abs() >= f64::EPSILON { 1.0 } else { 0.0 }),
+        ("!=", Value::String(l), Value::String(r)) => Value::Number(if l != r { 1.0 } else { 0.0 }),
+        ("!=", Value::Nil, _) | ("!=", _, Value::Nil) => Value::Error("type error: cannot compare nil with !=".into()),
+        ("!=", _, _) => Value::Error(format!("type error: cannot compare {} with {}", type_name(&left), type_name(&right))),
+        // fallback
+        _ => Value::Error(format!("type error: '{}' not supported for these types", op)),
     }
 }
 
@@ -389,6 +416,82 @@ pub fn exec_in(env: &mut Environment, src: &str) -> Value {
 /// Placeholder kept for main.rs --test flag compatibility.
 pub fn run_tests() {
     println!("Running tests...");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(src: &str) -> Value { execute(src) }
+
+    // ==
+    #[test]
+    fn eq_numbers_true()  { assert_eq!(run("1 == 1"), Value::Number(1.0)); }
+    #[test]
+    fn eq_numbers_false() { assert_eq!(run("1 == 2"), Value::Number(0.0)); }
+    #[test]
+    fn eq_strings_true()  { assert_eq!(run(r#""hi" == "hi""#), Value::Number(1.0)); }
+    #[test]
+    fn eq_strings_false() { assert_eq!(run(r#""a" == "b""#), Value::Number(0.0)); }
+    #[test]
+    fn eq_type_mismatch_errors() {
+        assert!(matches!(run(r#"1 == "1""#), Value::Error(_)));
+    }
+    #[test]
+    fn eq_nil_errors() {
+        // d["missing"] returns nil; nil == 1 must error
+        assert!(matches!(run("d = {x: 1}\nd[\"y\"] == 1"), Value::Error(_)));
+    }
+
+    // !=
+    #[test]
+    fn neq_numbers_true()  { assert_eq!(run("1 != 2"), Value::Number(1.0)); }
+    #[test]
+    fn neq_numbers_false() { assert_eq!(run("1 != 1"), Value::Number(0.0)); }
+    #[test]
+    fn neq_strings_true()  { assert_eq!(run(r#""a" != "b""#), Value::Number(1.0)); }
+    #[test]
+    fn neq_type_mismatch_errors() {
+        assert!(matches!(run(r#"1 != "x""#), Value::Error(_)));
+    }
+
+    // >=
+    #[test]
+    fn gte_greater() { assert_eq!(run("3 >= 2"), Value::Number(1.0)); }
+    #[test]
+    fn gte_equal()   { assert_eq!(run("2 >= 2"), Value::Number(1.0)); }
+    #[test]
+    fn gte_less()    { assert_eq!(run("1 >= 2"), Value::Number(0.0)); }
+    #[test]
+    fn gte_string_errors() {
+        assert!(matches!(run(r#""a" >= "b""#), Value::Error(_)));
+    }
+
+    // <=
+    #[test]
+    fn lte_less()    { assert_eq!(run("1 <= 2"), Value::Number(1.0)); }
+    #[test]
+    fn lte_equal()   { assert_eq!(run("2 <= 2"), Value::Number(1.0)); }
+    #[test]
+    fn lte_greater() { assert_eq!(run("3 <= 2"), Value::Number(0.0)); }
+
+    // existing operators not broken
+    #[test]
+    fn gt_still_works() { assert_eq!(run("3 > 2"), Value::Number(1.0)); }
+    #[test]
+    fn lt_still_works() { assert_eq!(run("1 < 2"), Value::Number(1.0)); }
+    #[test]
+    fn add_still_works() { assert_eq!(run("1 + 2"), Value::Number(3.0)); }
+
+    // integration
+    #[test]
+    fn eq_in_if() {
+        assert_eq!(run(r#"? "yes" == "yes" : 1 : 0"#), Value::Number(1.0));
+    }
+    #[test]
+    fn gte_with_and() {
+        assert_eq!(run("? 7 >= 5 and 7 <= 9 : 1 : 0"), Value::Number(1.0));
+    }
 }
 
 impl std::fmt::Display for Value {
