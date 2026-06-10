@@ -353,7 +353,7 @@ pub fn execute(src: &str) -> Value {
             let mut env = Environment::new();
             eval_expr(&mut env, &ast)
         }
-        Err(_) => Value::Nil,
+        Err(e) => Value::Error(format!("parse error: {}", e)),
     }
 }
 
@@ -365,7 +365,7 @@ pub fn eval(env: &Environment, src: &str) -> Value {
             let mut local = env.clone();
             eval_expr(&mut local, &ast)
         }
-        Err(_) => Value::Nil,
+        Err(e) => Value::Error(format!("parse error: {}", e)),
     }
 }
 

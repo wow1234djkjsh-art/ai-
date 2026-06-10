@@ -22,7 +22,11 @@ fn main() {
     }
     if let Some(path) = cli.run {
         let src = std::fs::read_to_string(&path).expect("cannot read script");
-        interpreter::execute(&src);
+        let result = interpreter::execute(&src);
+        if let interpreter::Value::Error(msg) = &result {
+            eprintln!("Runtime Error: {}", msg);
+            std::process::exit(1);
+        }
     } else {
         repl();
     }

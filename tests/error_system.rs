@@ -131,3 +131,11 @@ fn each_with_non_function_is_error() {
     assert!(matches!(result, Value::Error(ref msg) if msg.contains("function")),
         "expected function error from each, got {:?}", result);
 }
+
+#[test]
+fn parse_error_returns_value_error() {
+    // "fn fn" is invalid syntax — should return Error, not Nil
+    let result = execute("fn fn");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("parse error")),
+        "expected parse error, got {:?}", result);
+}
