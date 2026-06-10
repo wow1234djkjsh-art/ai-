@@ -10,6 +10,7 @@ pub enum Value {
     Nil,
     List(Vec<Value>),
     Dict(Vec<(String, Value)>),
+    Error(String),
 }
 
 impl PartialEq for Value {
@@ -28,6 +29,7 @@ impl PartialEq for Value {
                         .unwrap_or(false)
                 })
             }
+            (Value::Error(a), Value::Error(b)) => a == b,
             _ => false,
         }
     }
@@ -42,6 +44,7 @@ impl std::fmt::Debug for Value {
             Value::Nil => write!(f, "Nil"),
             Value::List(items) => write!(f, "List({:?})", items),
             Value::Dict(pairs) => write!(f, "Dict({:?})", pairs),
+            Value::Error(msg) => write!(f, "Error({})", msg),
         }
     }
 }
@@ -91,6 +94,12 @@ pub struct Function {
 
 impl Function {
     pub fn call(&self, args: Vec<Value>) -> Value {
+        if args.len() != self.params.len() {
+            return Value::Error(format!(
+                "arity mismatch: fn expects {} args, got {}",
+                self.params.len(), args.len()
+            ));
+        }
         let parent = (*self.parent_env).clone();
         let mut env = Environment::with_parent(parent);
         for (param, arg) in self.params.iter().zip(args) {
@@ -107,23 +116,28 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         Expr::Ident(name) => env.find(name).unwrap_or(Value::Nil),
         Expr::Neg(inner) => match eval_expr(env, inner) {
             Value::Number(n) => Value::Number(-n),
+            Value::Error(e) => Value::Error(e),
             _ => Value::Nil,
         },
         Expr::Block(stmts) => {
             let mut last = Value::Nil;
             for stmt in stmts {
                 last = eval_expr(env, stmt);
+                if let Value::Error(_) = &last { return last; }
             }
             last
         }
         Expr::Assign { name, value } => {
             let val = eval_expr(env, value);
+            if let Value::Error(_) = &val { return val; }
             env.define(name.clone(), val.clone());
             val
         }
         Expr::BinOp { op, left, right } => {
             let l = eval_expr(env, left);
+            if let Value::Error(_) = &l { return l; }
             let r = eval_expr(env, right);
+            if let Value::Error(_) = &r { return r; }
             eval_binop(*op, l, r)
         }
         Expr::FnDef { name, params, body } => {
@@ -142,11 +156,18 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             parent_env: Rc::new(env.clone()),
         }),
         Expr::Call { name, args } => {
-            let eval_args: Vec<Value> = args.iter().map(|a| eval_expr(env, a)).collect();
+            let mut eval_args = Vec::new();
+            for arg in args {
+                let v = eval_expr(env, arg);
+                if let Value::Error(_) = &v { return v; }
+                eval_args.push(v);
+            }
             call_fn(env, name, eval_args)
         }
         Expr::If { cond, then, else_ } => {
-            if is_truthy(&eval_expr(env, cond)) {
+            let cond_val = eval_expr(env, cond);
+            if let Value::Error(_) = &cond_val { return cond_val; }
+            if is_truthy(&cond_val) {
                 eval_expr(env, then)
             } else {
                 eval_expr(env, else_)
@@ -154,11 +175,16 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::Pipe { left, right } => {
             let left_val = eval_expr(env, left);
+            if let Value::Error(_) = &left_val { return left_val; }
             match right.as_ref() {
                 Expr::Ident(name) => call_fn(env, name, vec![left_val]),
                 Expr::Call { name, args } => {
-                    let mut eval_args: Vec<Value> =
-                        args.iter().map(|a| eval_expr(env, a)).collect();
+                    let mut eval_args = Vec::new();
+                    for arg in args {
+                        let v = eval_expr(env, arg);
+                        if let Value::Error(_) = &v { return v; }
+                        eval_args.push(v);
+                    }
                     eval_args.insert(0, left_val);
                     call_fn(env, name, eval_args)
                 }
@@ -167,9 +193,11 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::Each { items, func } => {
             let func_val = eval_expr(env, func);
+            if let Value::Error(_) = &func_val { return func_val; }
             let mut last = Value::Nil;
             for item in items {
                 let item_val = eval_expr(env, item);
+                if let Value::Error(_) = &item_val { return item_val; }
                 last = match &func_val {
                     Value::Function(f) => f.call(vec![item_val]),
                     _ => Value::Nil,
@@ -178,18 +206,28 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             last
         }
         Expr::List(items) => {
-            Value::List(items.iter().map(|e| eval_expr(env, e)).collect())
+            let mut result = Vec::new();
+            for item in items {
+                let v = eval_expr(env, item);
+                if let Value::Error(_) = &v { return v; }
+                result.push(v);
+            }
+            Value::List(result)
         }
         Expr::Dict(pairs) => {
-            Value::Dict(
-                pairs.iter()
-                    .map(|(k, v)| (k.clone(), eval_expr(env, v)))
-                    .collect(),
-            )
+            let mut result = Vec::new();
+            for (k, v) in pairs {
+                let val = eval_expr(env, v);
+                if let Value::Error(_) = &val { return val; }
+                result.push((k.clone(), val));
+            }
+            Value::Dict(result)
         }
         Expr::Index { object, index } => {
             let obj_val = eval_expr(env, object);
+            if let Value::Error(_) = &obj_val { return obj_val; }
             let idx_val = eval_expr(env, index);
+            if let Value::Error(_) = &idx_val { return idx_val; }
             match (obj_val, idx_val) {
                 (Value::List(items), Value::Number(n)) => {
                     if n < 0.0 || n.fract() != 0.0 {
@@ -206,20 +244,27 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                 _ => Value::Nil,
             }
         }
+        Expr::FieldAccess { .. } => Value::Nil,
         Expr::And { left, right } => {
             let l = eval_expr(env, left);
+            if let Value::Error(_) = &l { return l; }
             if !is_truthy(&l) { return Value::Number(0.0); }
             let r = eval_expr(env, right);
+            if let Value::Error(_) = &r { return r; }
             Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
         }
         Expr::Or { left, right } => {
             let l = eval_expr(env, left);
+            if let Value::Error(_) = &l { return l; }
             if is_truthy(&l) { return Value::Number(1.0); }
             let r = eval_expr(env, right);
+            if let Value::Error(_) = &r { return r; }
             Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
         }
         Expr::Not(inner) => {
-            Value::Number(if is_truthy(&eval_expr(env, inner)) { 0.0 } else { 1.0 })
+            let v = eval_expr(env, inner);
+            if let Value::Error(_) = &v { return v; }
+            Value::Number(if is_truthy(&v) { 0.0 } else { 1.0 })
         }
     }
 }
@@ -232,6 +277,7 @@ fn is_truthy(val: &Value) -> bool {
         Value::Function(_) => true,
         Value::List(items) => !items.is_empty(),
         Value::Dict(pairs) => !pairs.is_empty(),
+        Value::Error(_)    => false,
     }
 }
 
@@ -273,7 +319,7 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
                 };
                 f_with_self.call(args)
             }
-            _ => Value::Nil,
+            _ => Value::Error(format!("unknown function: {}", name)),
         },
     }
 }
@@ -340,6 +386,7 @@ impl std::fmt::Display for Value {
                     .collect();
                 write!(f, "{{{}}}", inner.join(", "))
             }
+            Value::Error(msg) => write!(f, "<error: {}>", msg),
         }
     }
 }

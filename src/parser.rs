@@ -45,6 +45,7 @@ pub enum Expr {
     List(Vec<Expr>),
     Dict(Vec<(String, Expr)>),
     Index { object: Box<Expr>, index: Box<Expr> },
+    FieldAccess { object: Box<Expr>, field: String },
     And { left: Box<Expr>, right: Box<Expr> },
     Or  { left: Box<Expr>, right: Box<Expr> },
     Not (Box<Expr>),
@@ -356,11 +357,22 @@ impl<'a> Parser<'a> {
     }
 
     fn apply_subscript(&mut self, mut expr: Expr) -> Result<Expr, String> {
-        while self.peek() == &Token::Sym('[') {
-            self.advance();
-            let index = self.parse_pipe()?;
-            self.eat_sym(']')?;
-            expr = Expr::Index { object: Box::new(expr), index: Box::new(index) };
+        loop {
+            if self.peek() == &Token::Sym('[') {
+                self.advance();
+                let index = self.parse_pipe()?;
+                self.eat_sym(']')?;
+                expr = Expr::Index { object: Box::new(expr), index: Box::new(index) };
+            } else if self.peek() == &Token::Dot {
+                self.advance(); // consume '.'
+                let field = match self.advance() {
+                    Token::Ident(f) => f,
+                    tok => return Err(format!("expected field name after '.', got {:?}", tok)),
+                };
+                expr = Expr::FieldAccess { object: Box::new(expr), field };
+            } else {
+                break;
+            }
         }
         Ok(expr)
     }
