@@ -262,3 +262,13 @@ fn try_catch_nested() {
         other => panic!("expected String, got {:?}", other),
     }
 }
+
+#[test]
+fn try_catch_handler_error_propagates() {
+    // If the catch handler itself throws, the error propagates out
+    let result = execute(
+        "try\nunknown_fn()\ncatch e\nanother_unknown()\nend"
+    );
+    assert!(matches!(result, Value::Error(_)),
+        "expected error from handler to propagate, got {:?}", result);
+}
