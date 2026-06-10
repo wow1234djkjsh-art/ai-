@@ -16,6 +16,10 @@ pub enum Token {
     Try,
     Catch,
     End,
+    Eq,   // ==
+    Neq,  // !=
+    Gte,  // >=
+    Lte,  // <=
     Sym(char),
     Eof,
 }
@@ -58,6 +62,11 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                     spaces.push(had_space);
                     had_space = false;
                     i += 2;
+                } else if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Eq);
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 2;
                 } else {
                     tokens.push(Token::Sym('='));
                     spaces.push(had_space);
@@ -65,7 +74,43 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                     i += 1;
                 }
             }
-            '+' | '-' | '*' | '/' | '>' | '<' | '?' | ':' | '|' | ',' | '(' | ')'
+            '!' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Neq);
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 2;
+                } else {
+                    i += 1; // lone '!' ignored
+                }
+            }
+            '>' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Gte);
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 2;
+                } else {
+                    tokens.push(Token::Sym('>'));
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 1;
+                }
+            }
+            '<' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Lte);
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 2;
+                } else {
+                    tokens.push(Token::Sym('<'));
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 1;
+                }
+            }
+            '+' | '-' | '*' | '/' | '?' | ':' | '|' | ',' | '(' | ')'
             | '[' | ']' | '{' | '}' => {
                 tokens.push(Token::Sym(chars[i]));
                 spaces.push(had_space);
@@ -136,4 +181,45 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
     tokens.push(Token::Eof);
     spaces.push(false);
     (tokens, spaces)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lex_eq() {
+        assert_eq!(lex("=="), vec![Token::Eq, Token::Eof]);
+    }
+    #[test]
+    fn lex_neq() {
+        assert_eq!(lex("!="), vec![Token::Neq, Token::Eof]);
+    }
+    #[test]
+    fn lex_gte() {
+        assert_eq!(lex(">="), vec![Token::Gte, Token::Eof]);
+    }
+    #[test]
+    fn lex_lte() {
+        assert_eq!(lex("<="), vec![Token::Lte, Token::Eof]);
+    }
+    #[test]
+    fn lex_gt_alone() {
+        assert_eq!(lex(">"), vec![Token::Sym('>'), Token::Eof]);
+    }
+    #[test]
+    fn lex_lt_alone() {
+        assert_eq!(lex("<"), vec![Token::Sym('<'), Token::Eof]);
+    }
+    #[test]
+    fn lex_assign_unchanged() {
+        assert_eq!(
+            lex("x = 1"),
+            vec![Token::Ident("x".into()), Token::Sym('='), Token::Number(1.0), Token::Eof]
+        );
+    }
+    #[test]
+    fn lex_arrow_unchanged() {
+        assert_eq!(lex("=>"), vec![Token::Arrow, Token::Eof]);
+    }
 }
