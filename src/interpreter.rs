@@ -451,6 +451,15 @@ mod tests {
     #[test]
     fn neq_strings_true()  { assert_eq!(run(r#""a" != "b""#), Value::Number(1.0)); }
     #[test]
+    fn neq_nil_errors() {
+        // d["missing"] returns nil; nil != 1 must error
+        assert!(matches!(run("d = {x: 1}\nd[\"y\"] != 1"), Value::Error(_)));
+    }
+    #[test]
+    fn neq_strings_false() {
+        assert_eq!(run(r#""a" != "a""#), Value::Number(0.0));
+    }
+    #[test]
     fn neq_type_mismatch_errors() {
         assert!(matches!(run(r#"1 != "x""#), Value::Error(_)));
     }
