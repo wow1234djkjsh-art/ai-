@@ -83,7 +83,7 @@ fn test_string_concat() {
 
 #[test]
 fn test_div_by_zero() {
-    assert_eq!(execute("1/0"), Value::Nil);
+    assert!(matches!(execute("1/0"), Value::Error(ref msg) if msg.contains("division by zero")));
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn test_dict_assign_and_lookup() {
 
 #[test]
 fn test_index_out_of_bounds() {
-    assert_eq!(execute("[1,2][9]"), Value::Nil);
+    assert!(matches!(execute("[1,2][9]"), Value::Error(ref msg) if msg.contains("out of bounds")));
 }
 
 #[test]
@@ -157,12 +157,12 @@ fn test_list_in_fn_call() {
 
 #[test]
 fn test_list_negative_index_returns_nil() {
-    assert_eq!(execute("[1,2,3][-1]"), Value::Nil);
+    assert!(matches!(execute("[1,2,3][-1]"), Value::Error(ref msg) if msg.contains("invalid index")));
 }
 
 #[test]
 fn test_list_fractional_index_returns_nil() {
-    assert_eq!(execute("[10,20,30][1.5]"), Value::Nil);
+    assert!(matches!(execute("[10,20,30][1.5]"), Value::Error(ref msg) if msg.contains("invalid index")));
 }
 
 #[test]

@@ -113,11 +113,12 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
     match expr {
         Expr::Number(n) => Value::Number(*n),
         Expr::Str(s) => Value::String(s.clone()),
-        Expr::Ident(name) => env.find(name).unwrap_or(Value::Nil),
+        Expr::Ident(name) => env.find(name)
+            .unwrap_or_else(|| Value::Error(format!("undefined variable: {}", name))),
         Expr::Neg(inner) => match eval_expr(env, inner) {
             Value::Number(n) => Value::Number(-n),
             Value::Error(e) => Value::Error(e),
-            _ => Value::Nil,
+            _ => Value::Error("type error: unary '-' requires a number".into()),
         },
         Expr::Block(stmts) => {
             let mut last = Value::Nil;
@@ -190,7 +191,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                     eval_args.insert(0, left_val);
                     call_fn(env, name, eval_args)
                 }
-                _ => Value::Nil,
+                _ => Value::Error("pipe right-hand side must be a function call".into()),
             }
         }
         Expr::Each { items, func } => {
@@ -202,7 +203,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                 if let Value::Error(_) = &item_val { return item_val; }
                 last = match &func_val {
                     Value::Function(f) => f.call(vec![item_val]),
-                    _ => Value::Nil,
+                    _ => return Value::Error("each requires a function".into()),
                 };
             }
             last
@@ -233,9 +234,11 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             match (obj_val, idx_val) {
                 (Value::List(items), Value::Number(n)) => {
                     if n < 0.0 || n.fract() != 0.0 {
-                        return Value::Nil;
+                        return Value::Error("invalid index: must be a non-negative integer".into());
                     }
-                    items.get(n as usize).cloned().unwrap_or(Value::Nil)
+                    items.get(n as usize)
+                        .cloned()
+                        .unwrap_or_else(|| Value::Error(format!("index out of bounds: {}", n as usize)))
                 }
                 (Value::Dict(pairs), Value::String(key)) => {
                     pairs.into_iter()
@@ -243,7 +246,10 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                         .map(|(_, v)| v)
                         .unwrap_or(Value::Nil)
                 }
-                _ => Value::Nil,
+                (obj, idx) => Value::Error(format!(
+                    "type error: cannot index {} with {}",
+                    obj, idx
+                )),
             }
         }
         Expr::FieldAccess { object, field } => {
@@ -301,7 +307,7 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
         ('*', Value::Number(l), Value::Number(r)) => Value::Number(l * r),
         ('/', Value::Number(l), Value::Number(r)) => {
             if *r == 0.0 {
-                Value::Nil
+                Value::Error("division by zero".into())
             } else {
                 Value::Number(l / r)
             }
@@ -309,7 +315,10 @@ fn eval_binop(op: char, left: Value, right: Value) -> Value {
         ('>', Value::Number(l), Value::Number(r)) => Value::Number(if l > r { 1.0 } else { 0.0 }),
         ('<', Value::Number(l), Value::Number(r)) => Value::Number(if l < r { 1.0 } else { 0.0 }),
         ('+', Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
-        _ => Value::Nil,
+        _ => Value::Error(format!(
+            "type error: '{}' not supported for these types",
+            op
+        )),
     }
 }
 

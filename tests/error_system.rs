@@ -75,3 +75,59 @@ fn field_access_on_non_dict_non_error_is_error() {
     let result = execute("x = 42\nx.foo");
     assert!(matches!(result, Value::Error(_)), "expected error, got {:?}", result);
 }
+
+#[test]
+fn undefined_variable_is_error() {
+    let result = execute("foo");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("undefined variable")),
+        "expected undefined variable error, got {:?}", result);
+}
+
+#[test]
+fn type_error_string_plus_number() {
+    let result = execute("\"hello\" + 1");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("type error")),
+        "expected type error, got {:?}", result);
+}
+
+#[test]
+fn division_by_zero_is_error() {
+    let result = execute("10 / 0");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("division by zero")),
+        "expected division by zero error, got {:?}", result);
+}
+
+#[test]
+fn neg_on_string_is_error() {
+    let result = execute("-\"hello\"");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("type error")),
+        "expected type error on neg, got {:?}", result);
+}
+
+#[test]
+fn index_out_of_bounds_is_error() {
+    let result = execute("x = [1, 2, 3]\nx[10]");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("out of bounds")),
+        "expected out of bounds error, got {:?}", result);
+}
+
+#[test]
+fn negative_list_index_is_error() {
+    let result = execute("x = [1, 2]\nx[-1]");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("invalid index")),
+        "expected invalid index error, got {:?}", result);
+}
+
+#[test]
+fn index_wrong_type_is_error() {
+    let result = execute("x = [1, 2]\nx[\"a\"]");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("type error")),
+        "expected type error on list index, got {:?}", result);
+}
+
+#[test]
+fn each_with_non_function_is_error() {
+    let result = execute("each 1, 2, 3: 42");
+    assert!(matches!(result, Value::Error(ref msg) if msg.contains("function")),
+        "expected function error from each, got {:?}", result);
+}
