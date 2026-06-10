@@ -13,6 +13,9 @@ pub enum Token {
     Arrow,
     Sep,
     Dot,
+    Try,
+    Catch,
+    End,
     Sym(char),
     Eof,
 }
@@ -105,6 +108,9 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                     "and" => tokens.push(Token::And),
                     "or" => tokens.push(Token::Or),
                     "not" => tokens.push(Token::Not),
+                    "try" => tokens.push(Token::Try),
+                    "catch" => tokens.push(Token::Catch),
+                    "end" => tokens.push(Token::End),
                     _ => tokens.push(Token::Ident(word)),
                 }
                 spaces.push(had_space);

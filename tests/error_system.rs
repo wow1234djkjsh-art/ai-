@@ -180,3 +180,11 @@ fn dict_field_access_still_works() {
     );
     assert_eq!(result, Value::String("bob".into()));
 }
+
+#[test]
+fn lexer_emits_try_catch_end_tokens() {
+    let tokens = lex("try\ncatch err\nend");
+    assert!(tokens.iter().any(|t| matches!(t, Token::Try)), "missing Try");
+    assert!(tokens.iter().any(|t| matches!(t, Token::Catch)), "missing Catch");
+    assert!(tokens.iter().any(|t| matches!(t, Token::End)), "missing End");
+}
