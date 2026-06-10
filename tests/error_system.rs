@@ -139,3 +139,44 @@ fn parse_error_returns_value_error() {
     assert!(matches!(result, Value::Error(ref msg) if msg.contains("parse error")),
         "expected parse error, got {:?}", result);
 }
+
+// Integration tests for error-as-first-class-value
+
+#[test]
+fn error_value_inspectable_in_language() {
+    // Call an undefined function, capture the error, inspect its type field
+    let result = execute(
+        "e = bad_fn()\n\
+         e.type"
+    );
+    assert_eq!(result, Value::String("error".into()),
+        "e.type should be 'error', got {:?}", result);
+}
+
+#[test]
+fn error_propagates_through_block_standalone() {
+    // Standalone error expression (not an assignment) propagates
+    let result = execute(
+        "x = 1\n\
+         undefined_var\n\
+         z = 999"
+    );
+    assert!(matches!(result, Value::Error(_)),
+        "expected error to propagate, got {:?}", result);
+}
+
+#[test]
+fn error_message_field_is_string() {
+    let result = execute("e = unknown_fn()\ne.message");
+    assert!(matches!(result, Value::String(_)),
+        "e.message should be a String, got {:?}", result);
+}
+
+#[test]
+fn dict_field_access_still_works() {
+    let result = execute(
+        "user = {name: \"bob\", age: 30}\n\
+         user.name"
+    );
+    assert_eq!(result, Value::String("bob".into()));
+}
