@@ -11,6 +11,9 @@ pub enum Value {
     List(Vec<Value>),
     Dict(Vec<(String, Value)>),
     Error(String),
+    Return(Box<Value>),
+    Break,
+    Continue,
 }
 
 impl PartialEq for Value {
@@ -30,6 +33,9 @@ impl PartialEq for Value {
                 })
             }
             (Value::Error(a), Value::Error(b)) => a == b,
+            (Value::Return(a), Value::Return(b)) => a == b,
+            (Value::Break, Value::Break) => true,
+            (Value::Continue, Value::Continue) => true,
             _ => false,
         }
     }
@@ -45,6 +51,9 @@ impl std::fmt::Debug for Value {
             Value::List(items) => write!(f, "List({:?})", items),
             Value::Dict(pairs) => write!(f, "Dict({:?})", pairs),
             Value::Error(msg) => write!(f, "Error({})", msg),
+            Value::Return(v) => write!(f, "Return({:?})", v),
+            Value::Break => write!(f, "Break"),
+            Value::Continue => write!(f, "Continue"),
         }
     }
 }
@@ -105,8 +114,18 @@ impl Function {
         for (param, arg) in self.params.iter().zip(args) {
             env.define(param.clone(), arg);
         }
-        eval_expr(&mut env, &self.body)
+        match eval_expr(&mut env, &self.body) {
+            Value::Return(v)  => *v,
+            Value::Break      => Value::Error("break outside of loop".into()),
+            Value::Continue   => Value::Error("continue outside of loop".into()),
+            other => other,
+        }
     }
+}
+
+#[inline]
+pub(crate) fn is_signal(v: &Value) -> bool {
+    matches!(v, Value::Error(_) | Value::Return(_) | Value::Break | Value::Continue)
 }
 
 pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
@@ -117,19 +136,22 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             .unwrap_or_else(|| Value::Error(format!("undefined variable: {}", name))),
         Expr::Neg(inner) => match eval_expr(env, inner) {
             Value::Number(n) => Value::Number(-n),
-            Value::Error(e) => Value::Error(e),
+            v if is_signal(&v) => v,
             _ => Value::Error("type error: unary '-' requires a number".into()),
         },
         Expr::Block(stmts) => {
             let mut last = Value::Nil;
             for stmt in stmts {
                 last = eval_expr(env, stmt);
-                if let Value::Error(_) = &last { return last; }
+                if is_signal(&last) { return last; }
             }
             last
         }
         Expr::Assign { name, value } => {
             let val = eval_expr(env, value);
+            if matches!(&val, Value::Return(_) | Value::Break | Value::Continue) { return val; }
+            // Intentional: errors are assignable values, not propagated signals.
+            // x = risky_call() stores the error in x so callers can inspect it.
             env.define(name.clone(), val.clone());
             match val {
                 Value::Error(_) => Value::Nil,
@@ -138,9 +160,9 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::BinOp { op, left, right } => {
             let l = eval_expr(env, left);
-            if let Value::Error(_) = &l { return l; }
+            if is_signal(&l) { return l; }
             let r = eval_expr(env, right);
-            if let Value::Error(_) = &r { return r; }
+            if is_signal(&r) { return r; }
             eval_binop(op, l, r)
         }
         Expr::FnDef { name, params, body } => {
@@ -159,17 +181,26 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             parent_env: Rc::new(env.clone()),
         }),
         Expr::Call { name, args } => {
+            // is_error / ok must receive Error values as arguments rather than
+            // having them propagate upward — suppress error signals for these.
+            let suppress_error = matches!(name.as_str(), "is_error" | "ok");
             let mut eval_args = Vec::new();
             for arg in args {
                 let v = eval_expr(env, arg);
-                if let Value::Error(_) = &v { return v; }
+                if is_signal(&v) {
+                    if suppress_error && matches!(v, Value::Error(_)) {
+                        // pass error through as argument value
+                    } else {
+                        return v;
+                    }
+                }
                 eval_args.push(v);
             }
             call_fn(env, name, eval_args)
         }
         Expr::If { cond, then, else_ } => {
             let cond_val = eval_expr(env, cond);
-            if let Value::Error(_) = &cond_val { return cond_val; }
+            if is_signal(&cond_val) { return cond_val; }
             if is_truthy(&cond_val) {
                 eval_expr(env, then)
             } else {
@@ -178,14 +209,22 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::Pipe { left, right } => {
             let left_val = eval_expr(env, left);
-            if let Value::Error(_) = &left_val { return left_val; }
+            // Check if RHS is is_error or ok — these need to receive errors as values
+            let suppress = match right.as_ref() {
+                Expr::Ident(name) => matches!(name.as_str(), "is_error" | "ok"),
+                Expr::Call { name, .. } => matches!(name.as_str(), "is_error" | "ok"),
+                _ => false,
+            };
+            if is_signal(&left_val) && !(suppress && matches!(left_val, Value::Error(_))) {
+                return left_val;
+            }
             match right.as_ref() {
                 Expr::Ident(name) => call_fn(env, name, vec![left_val]),
                 Expr::Call { name, args } => {
                     let mut eval_args = Vec::new();
                     for arg in args {
                         let v = eval_expr(env, arg);
-                        if let Value::Error(_) = &v { return v; }
+                        if is_signal(&v) { return v; }
                         eval_args.push(v);
                     }
                     eval_args.insert(0, left_val);
@@ -196,15 +235,31 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::Each { items, func } => {
             let func_val = eval_expr(env, func);
-            if let Value::Error(_) = &func_val { return func_val; }
+            if is_signal(&func_val) { return func_val; }
+            // If a single expression evaluates to a List, iterate its elements
+            let to_iterate: Vec<Value> = if items.len() == 1 {
+                let v = eval_expr(env, &items[0]);
+                if is_signal(&v) { return v; }
+                match v {
+                    Value::List(elems) => elems,
+                    single => vec![single],
+                }
+            } else {
+                let mut vals = Vec::new();
+                for item in items {
+                    let v = eval_expr(env, item);
+                    if is_signal(&v) { return v; }
+                    vals.push(v);
+                }
+                vals
+            };
             let mut last = Value::Nil;
-            for item in items {
-                let item_val = eval_expr(env, item);
-                if let Value::Error(_) = &item_val { return item_val; }
+            for item_val in to_iterate {
                 last = match &func_val {
                     Value::Function(f) => f.call(vec![item_val]),
                     _ => return Value::Error("each requires a function".into()),
                 };
+                if is_signal(&last) { return last; }
             }
             last
         }
@@ -212,7 +267,7 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             let mut result = Vec::new();
             for item in items {
                 let v = eval_expr(env, item);
-                if let Value::Error(_) = &v { return v; }
+                if is_signal(&v) { return v; }
                 result.push(v);
             }
             Value::List(result)
@@ -221,24 +276,25 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
             let mut result = Vec::new();
             for (k, v) in pairs {
                 let val = eval_expr(env, v);
-                if let Value::Error(_) = &val { return val; }
+                if is_signal(&val) { return val; }
                 result.push((k.clone(), val));
             }
             Value::Dict(result)
         }
         Expr::Index { object, index } => {
             let obj_val = eval_expr(env, object);
-            if let Value::Error(_) = &obj_val { return obj_val; }
+            if is_signal(&obj_val) { return obj_val; }
             let idx_val = eval_expr(env, index);
-            if let Value::Error(_) = &idx_val { return idx_val; }
+            if is_signal(&idx_val) { return idx_val; }
             match (obj_val, idx_val) {
                 (Value::List(items), Value::Number(n)) => {
-                    if n < 0.0 || n.fract() != 0.0 {
-                        return Value::Error("invalid index: must be a non-negative integer".into());
+                    let len = items.len() as f64;
+                    let idx = if n < 0.0 { len + n } else { n };
+                    if idx < 0.0 || idx.fract() != 0.0 {
+                        return Value::Error(format!("invalid index: {}", n));
                     }
-                    items.get(n as usize)
-                        .cloned()
-                        .unwrap_or_else(|| Value::Error(format!("index out of bounds: {}", n as usize)))
+                    items.get(idx as usize).cloned()
+                        .unwrap_or_else(|| Value::Error(format!("index out of bounds: {}", n as i64)))
                 }
                 (Value::Dict(pairs), Value::String(key)) => {
                     pairs.into_iter()
@@ -254,9 +310,16 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::FieldAccess { object, field } => {
             let obj = eval_expr(env, object);
+            // Handle error fields before signal propagation so .message / .type still work
+            if let Value::Error(ref msg) = obj {
+                return match field.as_str() {
+                    "message" => Value::String(msg.clone()),
+                    "type"    => Value::String("error".into()),
+                    _         => obj,   // propagate error for unknown fields
+                };
+            }
+            if is_signal(&obj) { return obj; }
             match (&obj, field.as_str()) {
-                (Value::Error(msg), "message") => Value::String(msg.clone()),
-                (Value::Error(_),   "type")    => Value::String("error".into()),
                 (Value::Dict(pairs), key) => pairs.iter()
                     .find(|(k, _)| k == key)
                     .map(|(_, v)| v.clone())
@@ -266,23 +329,23 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
         }
         Expr::And { left, right } => {
             let l = eval_expr(env, left);
-            if let Value::Error(_) = &l { return l; }
+            if is_signal(&l) { return l; }
             if !is_truthy(&l) { return Value::Number(0.0); }
             let r = eval_expr(env, right);
-            if let Value::Error(_) = &r { return r; }
+            if is_signal(&r) { return r; }
             Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
         }
         Expr::Or { left, right } => {
             let l = eval_expr(env, left);
-            if let Value::Error(_) = &l { return l; }
+            if is_signal(&l) { return l; }
             if is_truthy(&l) { return Value::Number(1.0); }
             let r = eval_expr(env, right);
-            if let Value::Error(_) = &r { return r; }
+            if is_signal(&r) { return r; }
             Value::Number(if is_truthy(&r) { 1.0 } else { 0.0 })
         }
         Expr::Not(inner) => {
             let v = eval_expr(env, inner);
-            if let Value::Error(_) = &v { return v; }
+            if is_signal(&v) { return v; }
             Value::Number(if is_truthy(&v) { 0.0 } else { 1.0 })
         }
         Expr::TryCatch { body, catch_var, handler } => {
@@ -291,13 +354,41 @@ pub fn eval_expr(env: &mut Environment, expr: &Expr) -> Value {
                 env.define(catch_var.clone(), result);
                 eval_expr(env, handler)
             } else {
-                result
+                result  // Return/Break/Continue propagate unchanged
             }
         }
+        Expr::While { cond, body } => {
+            let mut last = Value::Nil;
+            loop {
+                let cond_val = eval_expr(env, cond);
+                if is_signal(&cond_val) { return cond_val; }
+                if !is_truthy(&cond_val) { break; }
+                last = eval_expr(env, body);
+                if matches!(last, Value::Break) {
+                    last = Value::Nil;
+                    break;
+                } else if matches!(last, Value::Continue) {
+                    last = Value::Nil;
+                    continue;
+                } else if is_signal(&last) {
+                    return last;
+                }
+            }
+            last
+        }
+        Expr::Return(maybe_val) => {
+            let val = match maybe_val {
+                Some(e) => { let v = eval_expr(env, e); if is_signal(&v) { return v; } v }
+                None => Value::Nil,
+            };
+            Value::Return(Box::new(val))
+        }
+        Expr::Break    => Value::Break,
+        Expr::Continue => Value::Continue,
     }
 }
 
-fn is_truthy(val: &Value) -> bool {
+pub(crate) fn is_truthy(val: &Value) -> bool {
     match val {
         Value::Number(n)   => *n != 0.0,
         Value::String(s)   => !s.is_empty(),
@@ -306,6 +397,7 @@ fn is_truthy(val: &Value) -> bool {
         Value::List(items) => !items.is_empty(),
         Value::Dict(pairs) => !pairs.is_empty(),
         Value::Error(_)    => false,
+        Value::Return(_) | Value::Break | Value::Continue => false,
     }
 }
 
@@ -318,6 +410,9 @@ fn type_name(v: &Value) -> &'static str {
         Value::List(_)     => "List",
         Value::Dict(_)     => "Dict",
         Value::Error(_)    => "Error",
+        Value::Return(_)   => "return",
+        Value::Break       => "break",
+        Value::Continue    => "continue",
     }
 }
 
@@ -334,6 +429,11 @@ fn eval_binop(op: &str, left: Value, right: Value) -> Value {
                 Value::Number(l / r)
             }
         }
+        ("**", Value::Number(l), Value::Number(r)) => Value::Number(l.powf(*r)),
+        ("%",  Value::Number(l), Value::Number(r)) => {
+            if *r == 0.0 { Value::Error("modulo by zero".into()) }
+            else { Value::Number(l % r) }
+        }
         // string concat
         ("+", Value::String(l), Value::String(r)) => Value::String(l.clone() + r),
         // ordering (numbers only)
@@ -346,12 +446,14 @@ fn eval_binop(op: &str, left: Value, right: Value) -> Value {
         // equality
         ("==", Value::Number(l), Value::Number(r)) => Value::Number(if (l - r).abs() < f64::EPSILON { 1.0 } else { 0.0 }),
         ("==", Value::String(l), Value::String(r)) => Value::Number(if l == r { 1.0 } else { 0.0 }),
-        ("==", Value::Nil, _) | ("==", _, Value::Nil) => Value::Error("type error: cannot compare nil with ==".into()),
+        ("==", Value::Nil, Value::Nil) => Value::Number(1.0),
+        ("==", Value::Nil, _) | ("==", _, Value::Nil) => Value::Number(0.0),
         ("==", _, _) => Value::Error(format!("type error: cannot compare {} with {}", type_name(&left), type_name(&right))),
         // inequality
         ("!=", Value::Number(l), Value::Number(r)) => Value::Number(if (l - r).abs() >= f64::EPSILON { 1.0 } else { 0.0 }),
         ("!=", Value::String(l), Value::String(r)) => Value::Number(if l != r { 1.0 } else { 0.0 }),
-        ("!=", Value::Nil, _) | ("!=", _, Value::Nil) => Value::Error("type error: cannot compare nil with !=".into()),
+        ("!=", Value::Nil, Value::Nil) => Value::Number(0.0),
+        ("!=", Value::Nil, _) | ("!=", _, Value::Nil) => Value::Number(1.0),
         ("!=", _, _) => Value::Error(format!("type error: cannot compare {} with {}", type_name(&left), type_name(&right))),
         // fallback
         _ => Value::Error(format!("type error: '{}' not supported for these types", op)),
@@ -360,9 +462,119 @@ fn eval_binop(op: &str, left: Value, right: Value) -> Value {
 
 fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
     match name {
-        "print" => crate::builtins::builtin_print(args),
-        "eval" => crate::builtins::builtin_eval(env, args),
-        "model" => crate::builtins::model(env, args),
+        // core
+        "print"      => crate::builtins::builtin_print(args),
+        "eval"       => crate::builtins::builtin_eval(env, args),
+        "model"      => crate::builtins::model(env, args),
+        // environment
+        "env"        => crate::builtins::builtin_env(args),
+        // collections
+        "len"        => crate::builtins::builtin_len(args),
+        "keys"       => crate::builtins::builtin_keys(args),
+        "values"     => crate::builtins::builtin_values(args),
+        "push"       => crate::builtins::builtin_push(args),
+        "range"      => crate::builtins::builtin_range(args),
+        "contains"   => crate::builtins::builtin_contains(args),
+        "slice"      => crate::builtins::builtin_slice(args),
+        "sort"       => crate::builtins::builtin_sort(args),
+        // higher-order
+        "map"        => crate::builtins::builtin_map(args),
+        "filter"     => crate::builtins::builtin_filter(args),
+        "reduce"     => crate::builtins::builtin_reduce(args),
+        // strings
+        "split"      => crate::builtins::builtin_split(args),
+        "join"       => crate::builtins::builtin_join(args),
+        "upper"      => crate::builtins::builtin_upper(args),
+        "lower"      => crate::builtins::builtin_lower(args),
+        "trim"       => crate::builtins::builtin_trim(args),
+        // type conversion
+        "str"        => crate::builtins::builtin_to_str(args),
+        "num"        => crate::builtins::builtin_to_num(args),
+        "type"       => crate::builtins::builtin_type_of(args),
+        // math
+        "floor"      => crate::builtins::builtin_floor(args),
+        "ceil"       => crate::builtins::builtin_ceil(args),
+        "round"      => crate::builtins::builtin_round(args),
+        "abs"        => crate::builtins::builtin_abs(args),
+        "min"        => crate::builtins::builtin_min(args),
+        "max"        => crate::builtins::builtin_max(args),
+        // HTTP / JSON
+        "http_get"   => crate::builtins::builtin_http_get(args),
+        "http_post"  => crate::builtins::builtin_http_post(args),
+        "json_parse" => crate::builtins::builtin_json_parse(args),
+        "json_str"   => crate::builtins::builtin_json_str(args),
+        // I/O
+        "input"      => crate::builtins::builtin_input(args),
+        // file I/O
+        "read_file"   => crate::builtins::builtin_read_file(args),
+        "write_file"  => crate::builtins::builtin_write_file(args),
+        "append_file" => crate::builtins::builtin_append_file(args),
+        // process
+        "exit"        => crate::builtins::builtin_exit(args),
+        "sleep"       => crate::builtins::builtin_sleep(args),
+        // nil / type
+        "is_nil"      => crate::builtins::builtin_is_nil(args),
+        // list extras
+        "concat"      => crate::builtins::builtin_concat(args),
+        "flat"        => crate::builtins::builtin_flat(args),
+        "first"       => crate::builtins::builtin_first(args),
+        "last"        => crate::builtins::builtin_last(args),
+        "pop"         => crate::builtins::builtin_pop(args),
+        "set"         => crate::builtins::builtin_set(args),
+        // math (extended)
+        "sqrt"        => crate::builtins::builtin_sqrt(args),
+        "cbrt"        => crate::builtins::builtin_cbrt(args),
+        "pow"         => crate::builtins::builtin_pow(args),
+        "log"         => crate::builtins::builtin_log(args),
+        "log2"        => crate::builtins::builtin_log2(args),
+        "log10"       => crate::builtins::builtin_log10(args),
+        "exp"         => crate::builtins::builtin_exp(args),
+        "sin"         => crate::builtins::builtin_sin(args),
+        "cos"         => crate::builtins::builtin_cos(args),
+        "tan"         => crate::builtins::builtin_tan(args),
+        "asin"        => crate::builtins::builtin_asin(args),
+        "acos"        => crate::builtins::builtin_acos(args),
+        "atan"        => crate::builtins::builtin_atan(args),
+        "atan2"       => crate::builtins::builtin_atan2(args),
+        "hypot"       => crate::builtins::builtin_hypot(args),
+        "clamp"       => crate::builtins::builtin_clamp(args),
+        "sign"        => crate::builtins::builtin_sign(args),
+        "random"      => crate::builtins::builtin_random(args),
+        "rand_int"    => crate::builtins::builtin_rand_int(args),
+        // strings (extended)
+        "replace"     => crate::builtins::builtin_replace(args),
+        "starts_with" => crate::builtins::builtin_starts_with(args),
+        "ends_with"   => crate::builtins::builtin_ends_with(args),
+        "index_of"    => crate::builtins::builtin_index_of(args),
+        "repeat"      => crate::builtins::builtin_repeat(args),
+        "char_at"     => crate::builtins::builtin_char_at(args),
+        "chars"       => crate::builtins::builtin_chars(args),
+        "format"      => crate::builtins::builtin_format(args),
+        // list (extended)
+        "reverse"     => crate::builtins::builtin_reverse(args),
+        "unique"      => crate::builtins::builtin_unique(args),
+        "zip"         => crate::builtins::builtin_zip(args),
+        "enumerate"   => crate::builtins::builtin_enumerate(args),
+        "any"         => crate::builtins::builtin_any(args),
+        "all"         => crate::builtins::builtin_all(args),
+        "sum"         => crate::builtins::builtin_sum(args),
+        "product"     => crate::builtins::builtin_product(args),
+        "find_where"  => crate::builtins::builtin_find_where(args),
+        "flat_map"    => crate::builtins::builtin_flat_map(args),
+        "take"        => crate::builtins::builtin_take(args),
+        "skip"        => crate::builtins::builtin_skip(args),
+        "count"       => crate::builtins::builtin_count(args),
+        "group_by"    => crate::builtins::builtin_group_by(args),
+        // dict (extended)
+        "get"         => crate::builtins::builtin_get(args),
+        "del"         => crate::builtins::builtin_del(args),
+        "merge"       => crate::builtins::builtin_merge(args),
+        "has"         => crate::builtins::builtin_has(args),
+        // error helpers
+        "error"       => crate::builtins::builtin_make_error(args),
+        "is_error"    => crate::builtins::builtin_is_error(args),
+        "ok"          => crate::builtins::builtin_ok(args),
+        "zip_with"    => crate::builtins::builtin_zip_with(args),
         _ => match env.find(name) {
             Some(Value::Function(f)) => {
                 // Inject self-reference into parent env so recursive calls resolve correctly.
@@ -382,15 +594,32 @@ fn call_fn(env: &mut Environment, name: &str, args: Vec<Value>) -> Value {
     }
 }
 
+fn setup_globals(env: &mut Environment) {
+    env.define("true".into(),  Value::Number(1.0));
+    env.define("false".into(), Value::Number(0.0));
+    env.define("nil".into(),   Value::Nil);
+    env.define("pi".into(),    Value::Number(std::f64::consts::PI));
+    env.define("e".into(),     Value::Number(std::f64::consts::E));
+    env.define("inf".into(),   Value::Number(f64::INFINITY));
+    env.define("nan".into(),   Value::Number(f64::NAN));
+}
+
 /// Execute source: lex → parse → eval_expr with a fresh mutable environment.
 pub fn execute(src: &str) -> Value {
     match parse_src(src) {
         Ok(ast) => {
             let mut env = Environment::new();
+            setup_globals(&mut env);
             eval_expr(&mut env, &ast)
         }
         Err(e) => Value::Error(format!("parse error: {}", e)),
     }
+}
+
+pub fn new_env() -> Environment {
+    let mut env = Environment::new();
+    setup_globals(&mut env);
+    env
 }
 
 /// Legacy wrapper kept for builtin_eval compatibility. Clones env so callers
@@ -438,9 +667,12 @@ mod tests {
         assert!(matches!(run(r#"1 == "1""#), Value::Error(_)));
     }
     #[test]
-    fn eq_nil_errors() {
-        // d["missing"] returns nil; nil == 1 must error
-        assert!(matches!(run("d = {x: 1}\nd[\"y\"] == 1"), Value::Error(_)));
+    fn eq_nil_nil() {
+        assert_eq!(run("d = {x: 1}\nd[\"y\"] == d[\"z\"]"), Value::Number(1.0));
+    }
+    #[test]
+    fn eq_nil_nonnil() {
+        assert_eq!(run("d = {x: 1}\nd[\"y\"] == 1"), Value::Number(0.0));
     }
 
     // !=
@@ -451,9 +683,12 @@ mod tests {
     #[test]
     fn neq_strings_true()  { assert_eq!(run(r#""a" != "b""#), Value::Number(1.0)); }
     #[test]
-    fn neq_nil_errors() {
-        // d["missing"] returns nil; nil != 1 must error
-        assert!(matches!(run("d = {x: 1}\nd[\"y\"] != 1"), Value::Error(_)));
+    fn neq_nil_nonnil() {
+        assert_eq!(run("d = {x: 1}\nd[\"y\"] != 1"), Value::Number(1.0));
+    }
+    #[test]
+    fn neq_nil_nil() {
+        assert_eq!(run("d = {x: 1}\nd[\"y\"] != d[\"z\"]"), Value::Number(0.0));
     }
     #[test]
     fn neq_strings_false() {
@@ -501,6 +736,27 @@ mod tests {
     fn gte_with_and() {
         assert_eq!(run("? 7 >= 5 and 7 <= 9 : 1 : 0"), Value::Number(1.0));
     }
+
+    // new tests
+    #[test] fn modulo_basic()  { assert_eq!(run("10 % 3"), Value::Number(1.0)); }
+    #[test] fn modulo_float()  { assert_eq!(run("7.5 % 2.5"), Value::Number(0.0)); }
+    #[test] fn modulo_zero()   { assert!(matches!(run("5 % 0"), Value::Error(_))); }
+    #[test] fn power_basic()   { assert_eq!(run("2 ** 10"), Value::Number(1024.0)); }
+    #[test] fn power_right_assoc() { assert_eq!(run("2 ** 3 ** 2"), Value::Number(512.0)); }
+    #[test] fn neg_index_last() { assert_eq!(run("lst=[1,2,3]\nlst[-1]"), Value::Number(3.0)); }
+    #[test] fn neg_index_second_last() { assert_eq!(run("lst=[1,2,3]\nlst[-2]"), Value::Number(2.0)); }
+    #[test] fn nil_global()    { assert_eq!(run("nil"), Value::Nil); }
+    #[test] fn pi_global()     { assert!(matches!(run("pi"), Value::Number(_))); }
+    #[test] fn break_in_while() {
+        assert_eq!(run("i=0\nwhile i<10\n  i=i+1\n  ?i==3:break:nil\nend\ni"), Value::Number(3.0));
+    }
+    #[test] fn continue_in_while() {
+        assert_eq!(run("s=0\ni=0\nwhile i<5\n  i=i+1\n  ?i==3:continue:nil\n  s=s+i\nend\ns"), Value::Number(12.0));
+    }
+    #[test] fn return_from_fn() {
+        assert_eq!(run("fn f x =>\n  ?x>0:return x*2:nil\n  99\nf 5"), Value::Number(10.0));
+    }
+    #[test] fn return_nil()    { assert_eq!(run("fn f => return\nf()"), Value::Nil); }
 }
 
 impl std::fmt::Display for Value {
@@ -527,6 +783,9 @@ impl std::fmt::Display for Value {
                 write!(f, "{{{}}}", inner.join(", "))
             }
             Value::Error(msg) => write!(f, "<error: {}>", msg),
+            Value::Return(v) => write!(f, "{}", v),
+            Value::Break => write!(f, "<break>"),
+            Value::Continue => write!(f, "<continue>"),
         }
     }
 }

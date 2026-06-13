@@ -112,10 +112,11 @@ fn index_out_of_bounds_is_error() {
 }
 
 #[test]
-fn negative_list_index_is_error() {
+fn negative_list_index_returns_from_end() {
+    // Negative indices count from the end: -1 is last element
     let result = execute("x = [1, 2]\nx[-1]");
-    assert!(matches!(result, Value::Error(ref msg) if msg.contains("invalid index")),
-        "expected invalid index error, got {:?}", result);
+    assert_eq!(result, Value::Number(2.0),
+        "expected last element via negative index, got {:?}", result);
 }
 
 #[test]

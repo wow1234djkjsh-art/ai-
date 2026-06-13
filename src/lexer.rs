@@ -16,10 +16,15 @@ pub enum Token {
     Try,
     Catch,
     End,
-    Eq,   // ==
-    Neq,  // !=
-    Gte,  // >=
-    Lte,  // <=
+    While,
+    Return,
+    Break,
+    Continue,
+    Pow,   // **
+    Eq,    // ==
+    Neq,   // !=
+    Gte,   // >=
+    Lte,   // <=
     Sym(char),
     Eof,
 }
@@ -111,26 +116,62 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                     i += 1;
                 }
             }
-            '+' | '-' | '*' | '/' | '?' | ':' | '|' | ',' | '(' | ')'
-            | '[' | ']' | '{' | '}' => {
+            '/' if i + 1 < chars.len() && chars[i + 1] == '/' => {
+                // line comment — skip to end of line
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '#' => {
+                // shell-style line comment
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '+' | '-' | '/' | '?' | ':' | '|' | ',' | '(' | ')'
+            | '[' | ']' | '{' | '}' | '%' => {
                 tokens.push(Token::Sym(chars[i]));
                 spaces.push(had_space);
                 had_space = false;
                 i += 1;
             }
-            '"' => {
-                i += 1;
-                let start = i;
-                while i < chars.len() && chars[i] != '"' {
+            '*' => {
+                if i + 1 < chars.len() && chars[i + 1] == '*' {
+                    tokens.push(Token::Pow);
+                    spaces.push(had_space);
+                    had_space = false;
+                    i += 2;
+                } else {
+                    tokens.push(Token::Sym('*'));
+                    spaces.push(had_space);
+                    had_space = false;
                     i += 1;
                 }
-                let s: String = chars[start..i].iter().collect();
+            }
+            '"' => {
+                i += 1;
+                let mut s = String::new();
+                while i < chars.len() && chars[i] != '"' {
+                    if chars[i] == '\\' && i + 1 < chars.len() {
+                        i += 1;
+                        match chars[i] {
+                            'n'  => s.push('\n'),
+                            't'  => s.push('\t'),
+                            'r'  => s.push('\r'),
+                            '\\' => s.push('\\'),
+                            '"'  => s.push('"'),
+                            '0'  => s.push('\0'),
+                            c    => { s.push('\\'); s.push(c); }
+                        }
+                    } else {
+                        s.push(chars[i]);
+                    }
+                    i += 1;
+                }
                 tokens.push(Token::Str(s));
                 spaces.push(had_space);
                 had_space = false;
-                if i < chars.len() {
-                    i += 1;
-                }
+                if i < chars.len() { i += 1; }
             }
             c if c.is_ascii_digit() => {
                 let start = i;
@@ -149,14 +190,18 @@ pub fn lex_with_spaces(src: &str) -> (Vec<Token>, Vec<bool>) {
                 }
                 let word: String = chars[start..i].iter().collect();
                 match word.as_str() {
-                    "fn" => tokens.push(Token::Fn),
-                    "each" => tokens.push(Token::Each),
-                    "and" => tokens.push(Token::And),
-                    "or" => tokens.push(Token::Or),
-                    "not" => tokens.push(Token::Not),
-                    "try" => tokens.push(Token::Try),
-                    "catch" => tokens.push(Token::Catch),
-                    "end" => tokens.push(Token::End),
+                    "fn"       => tokens.push(Token::Fn),
+                    "each"     => tokens.push(Token::Each),
+                    "and"      => tokens.push(Token::And),
+                    "or"       => tokens.push(Token::Or),
+                    "not"      => tokens.push(Token::Not),
+                    "try"      => tokens.push(Token::Try),
+                    "catch"    => tokens.push(Token::Catch),
+                    "end"      => tokens.push(Token::End),
+                    "while"    => tokens.push(Token::While),
+                    "return"   => tokens.push(Token::Return),
+                    "break"    => tokens.push(Token::Break),
+                    "continue" => tokens.push(Token::Continue),
                     _ => tokens.push(Token::Ident(word)),
                 }
                 spaces.push(had_space);

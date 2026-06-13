@@ -156,8 +156,10 @@ fn test_list_in_fn_call() {
 }
 
 #[test]
-fn test_list_negative_index_returns_nil() {
-    assert!(matches!(execute("[1,2,3][-1]"), Value::Error(ref msg) if msg.contains("invalid index")));
+fn test_list_negative_index_returns_from_end() {
+    // Negative indices count from the end: -1 is last element
+    assert_eq!(execute("[1,2,3][-1]"), Value::Number(3.0));
+    assert_eq!(execute("[1,2,3][-2]"), Value::Number(2.0));
 }
 
 #[test]

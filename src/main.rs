@@ -12,6 +12,9 @@ struct Cli {
     run: Option<String>,
     #[arg(short, long)]
     test: bool,
+    /// Extra arguments passed to the script as `args` list
+    #[arg(trailing_var_arg = true)]
+    script_args: Vec<String>,
 }
 
 fn main() {
@@ -22,7 +25,12 @@ fn main() {
     }
     if let Some(path) = cli.run {
         let src = std::fs::read_to_string(&path).expect("cannot read script");
-        let result = interpreter::execute(&src);
+        let mut env = interpreter::new_env();
+        let argv: Vec<interpreter::Value> = cli.script_args.iter()
+            .map(|s| interpreter::Value::String(s.clone()))
+            .collect();
+        env.define("args".into(), interpreter::Value::List(argv));
+        let result = interpreter::exec_in(&mut env, &src);
         if let interpreter::Value::Error(msg) = &result {
             eprintln!("Runtime Error: {}", msg);
             std::process::exit(1);
@@ -33,10 +41,10 @@ fn main() {
 }
 
 fn repl() {
-    use interpreter::{exec_in, Environment, Value};
+    use interpreter::{exec_in, new_env, Value};
     use std::io::{self, Write};
 
-    let mut env = Environment::new();
+    let mut env = new_env();
     println!("C-DSL REPL  (exit to quit)");
     loop {
         print!("> ");
@@ -45,18 +53,42 @@ fn repl() {
         match io::stdin().read_line(&mut line) {
             Ok(0) | Err(_) => break,
             Ok(_) => {
-                let src = line.trim();
-                if src.is_empty() {
-                    continue;
-                }
-                if src == "exit" || src == "quit" {
-                    break;
-                }
-                let result = exec_in(&mut env, src);
+                let first = line.trim().to_string();
+                if first.is_empty() { continue; }
+                if first == "exit" || first == "quit" { break; }
+
+                // Accumulate block statements until 'end'
+                let src = if needs_block(&first) {
+                    let mut buf = first;
+                    loop {
+                        print!(".. ");
+                        io::stdout().flush().unwrap();
+                        let mut cont = String::new();
+                        match io::stdin().read_line(&mut cont) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {
+                                let trimmed = cont.trim_end_matches('\n').trim_end_matches('\r');
+                                buf.push('\n');
+                                buf.push_str(trimmed);
+                                if trimmed.trim() == "end" { break; }
+                            }
+                        }
+                    }
+                    buf
+                } else {
+                    first
+                };
+
+                let result = exec_in(&mut env, &src);
                 if !matches!(result, Value::Nil) {
                     println!("{}", result);
                 }
             }
         }
     }
+}
+
+fn needs_block(src: &str) -> bool {
+    let first_word = src.split_whitespace().next().unwrap_or("");
+    matches!(first_word, "while" | "try")
 }

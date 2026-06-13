@@ -1,110 +1,105 @@
 use c_dsl::builtins::{builtin_eval, model};
+use c_dsl::cache::set_cached;
 use c_dsl::interpreter::{execute, Environment, Value};
 use sha2::{Digest, Sha256};
 
-/// Clear a specific cache entry so tests start with known state.
-fn clear_cache_for(model_id: &str, prompt: &str, format: &str) {
-    let raw_key = format!("{}:{}:{}", model_id, prompt, format);
-    let cache_key = format!("{:x}", Sha256::digest(raw_key.as_bytes()));
-    if let Some(mut path) = dirs::home_dir() {
-        path.push(".c-dsl");
-        path.push("cache");
-        path.push(format!("{}.json", cache_key));
-        let _ = std::fs::remove_file(path); // ignore if absent
-    }
+fn cache_key_for(model_id: &str, prompt: &str, format: &str) -> String {
+    let raw = format!("{}:{}:{}", model_id, prompt, format);
+    format!("{:x}", Sha256::digest(raw.as_bytes()))
 }
 
-/// Verifies the full model → eval pipeline:
-/// model(format:"code") returns a C-DSL expression, builtin_eval evaluates it.
+/// model returns cached value when cache is pre-populated; eval can run on it.
 #[test]
 fn test_model_eval_pipeline() {
     let env = Environment::new();
-    let prompt = "generate an expression";
+    let model_id = "eval-test-model";
+    let prompt = "generate expression";
+    let fmt = "code";
+
+    // Pre-populate cache with a valid C-DSL expression
+    set_cached(&cache_key_for(model_id, prompt, fmt), "2 + 3");
 
     let code_val = model(
         &env,
         vec![
-            Value::String("stub-model".to_string()),
+            Value::String(model_id.to_string()),
             Value::String(prompt.to_string()),
-            Value::String("code".to_string()),
+            Value::String(fmt.to_string()),
         ],
     );
-
-    // model must return a String (the C-DSL expression)
-    assert!(
-        matches!(code_val, Value::String(_)),
-        "model must return String"
+    assert_eq!(
+        code_val,
+        Value::String("2 + 3".to_string()),
+        "model must return cached expression"
     );
 
-    // eval must produce a Number from that string
     let result = builtin_eval(&env, vec![code_val]);
-    // The stub returns prompt.len() as string → eval produces Number(prompt.len())
-    assert_eq!(result, Value::Number(prompt.len() as f64));
+    assert_eq!(result, Value::Number(5.0), "eval of '2 + 3' must be 5");
 }
 
-/// Verifies caching: identical calls return the same value.
+/// Identical calls return same cached value (cache hit).
 #[test]
 fn test_model_caching_consistency() {
     let env = Environment::new();
-    let model_id = "m";
-    let prompt = "cache test prompt";
-    let fmt = "code";
+    let model_id = "cache-consistency-model";
+    let prompt = "unique cache test XYZ789";
+    let fmt = "";
 
-    // Clear any stale cache to guarantee cold-cache first call
-    clear_cache_for(model_id, prompt, fmt);
+    set_cached(&cache_key_for(model_id, prompt, fmt), "hello from cache");
 
-    let args = || {
-        vec![
-            Value::String(model_id.to_string()),
-            Value::String(prompt.to_string()),
-            Value::String(fmt.to_string()),
-        ]
-    };
+    let args = || vec![
+        Value::String(model_id.to_string()),
+        Value::String(prompt.to_string()),
+    ];
 
-    // First call: cache miss — computes and stores
     let first = model(&env, args());
-    // Second call: cache hit — must return same value
     let second = model(&env, args());
 
-    assert_eq!(first, second);
-    assert!(matches!(first, Value::String(_)));
+    assert_eq!(first, second, "cached calls must be equal");
+    assert_eq!(first, Value::String("hello from cache".to_string()));
 }
 
-/// Verifies force:true bypasses cache and recomputes the correct stub output.
+/// force:true bypasses cache — cached call returns cached value, force call does not.
 #[test]
 fn test_model_force_bypasses_cache() {
     let env = Environment::new();
-    let model_id = "m";
-    let prompt = "force flag prompt";
-    let fmt = "code";
+    let model_id = "force-bypass-model";
+    let prompt = "force flag test prompt";
+    let fmt = "";
 
-    // Clear cache so we start fresh
-    clear_cache_for(model_id, prompt, fmt);
+    // Pre-cache a known value
+    set_cached(&cache_key_for(model_id, prompt, fmt), "cached value");
 
-    let make_args = |force: bool| {
-        let mut v = vec![
+    // Non-force: hits cache
+    let cached_result = model(
+        &env,
+        vec![
             Value::String(model_id.to_string()),
             Value::String(prompt.to_string()),
-            Value::String(fmt.to_string()),
-        ];
-        if force {
-            v.push(Value::String("true".to_string()));
-        }
-        v
-    };
+        ],
+    );
+    assert_eq!(
+        cached_result,
+        Value::String("cached value".to_string()),
+        "non-force must return cached value"
+    );
 
-    // Normal call: computes and caches
-    let cached_val = model(&env, make_args(false));
-    assert!(matches!(cached_val, Value::String(_)));
-
-    // Force call: bypasses cache, recomputes — must equal the stub's formula
-    let forced_val = model(&env, make_args(true));
-    assert!(matches!(forced_val, Value::String(_)));
-
-    // Stub is deterministic: both must equal prompt.len().to_string()
-    let expected = Value::String(prompt.len().to_string());
-    assert_eq!(cached_val, expected, "cached value must match stub formula");
-    assert_eq!(forced_val, expected, "forced value must match stub formula");
+    // Force: bypasses cache — returns error (no valid model) or real API response
+    let forced_result = model(
+        &env,
+        vec![
+            Value::String(model_id.to_string()),
+            Value::String(prompt.to_string()),
+            Value::String("".to_string()),
+            Value::String("true".to_string()),
+        ],
+    );
+    // Must NOT return the pre-cached value
+    assert_ne!(
+        forced_result,
+        Value::String("cached value".to_string()),
+        "force must bypass cache"
+    );
 }
 
 #[test]
@@ -127,6 +122,5 @@ fn test_e2e_pipe_chain() {
 
 #[test]
 fn test_e2e_each() {
-    // each returns the last result
     assert_eq!(execute("each 1,2,3:fn x=>x*2"), Value::Number(6.0));
 }

@@ -1,324 +1,377 @@
-# Compact-DSL (C-DSL)
+# C-DSL
 
-AI 통합을 위한 최소한의 토큰 효율적 스크립팅 언어.
+C-DSL (Compact DSL) is a lightweight scripting language built in Rust, designed for AI-powered automation. Its space-call syntax and built-in `model` function make it easy to write scripts that talk to Claude and process the results.
 
-## 시작하기
+---
 
-### 1. Rust 설치
-
-Rust가 없으면 [rustup.rs](https://rustup.rs)에서 설치 파일을 받아 실행하세요.
-
-### 2. 클론 및 빌드
+## Quick Start
 
 ```bash
-git clone https://github.com/wow1234djkjsh-art/ai-.git
-cd ai-
 cargo build --release
+./target/release/c-dsl --run script.dsl
 ```
 
-첫 빌드는 의존성 다운로드로 인해 1~2분 정도 걸립니다.
-
-### 3. 실행
-
-대화형 REPL 실행:
+### REPL
 
 ```bash
-# Linux / macOS
 ./target/release/c-dsl
-
-# Windows
-.\target\release\c-dsl.exe
+> print "hello, world"
+hello, world
 ```
 
-스크립트 파일 실행:
+---
+
+## Claude API Integration
+
+### 1. Set your API key
+
+Get a key from [console.anthropic.com](https://console.anthropic.com) and set it as an environment variable:
+
+```powershell
+# Windows (PowerShell)
+$env:ANTHROPIC_API_KEY = "sk-ant-api..."
+```
 
 ```bash
-# Linux / macOS
-./target/release/c-dsl --run script.cdsl
+# macOS / Linux
+export ANTHROPIC_API_KEY="sk-ant-api..."
+```
 
-# Windows
-.\target\release\c-dsl.exe --run script.cdsl
+### 2. Call `model`
+
+```
+model <model-id> <prompt>
+```
+
+The result is a `String` containing Claude's response. Responses are cached on disk (`~/.c-dsl/cache/`) so repeated calls with the same model+prompt are instant and free.
+
+```
+answer = model "claude-opus-4-8" "What is the capital of France?"
+print answer
+```
+
+**With format hint** — passing `"code"` as a third argument strips markdown fences from the response:
+
+```
+code = model "claude-opus-4-8" "Write a Python function to reverse a string" "code"
+print code
+```
+
+**Force fresh call** — bypass cache with a fourth arg `"true"`:
+
+```
+result = model "claude-opus-4-8" "Explain entropy" "" "true"
+```
+
+**Available model IDs:**
+
+| Model | ID |
+|---|---|
+| Claude Opus 4.8 | `claude-opus-4-8` |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` |
+| Claude Haiku 4.5 | `claude-haiku-4-5-20251001` |
+
+### 3. Batch processing with `map`
+
+```
+topics = ["photosynthesis", "entropy", "recursion"]
+answers = map(topics, fn t => model "claude-haiku-4-5-20251001" "Explain briefly: " + t)
+each answers : fn a => print a
 ```
 
 ---
 
-## 언어 레퍼런스
+## Language Reference
 
-### 변수
-
-`=`로 대입. REPL과 스크립트 모두 줄 간 변수 유지.
+### Variables
 
 ```
-x = 5
-y = x * 2
+x = 42
+name = "Alice"
 ```
 
-### 산술 연산
-
-연산자: `+`, `-`, `*`, `/`, `>`, `<`, `>=`, `<=`, `==`, `!=`. 문자열 연결도 `+`.
+### Numbers and Arithmetic
 
 ```
-1 + 2
-10 - 3
-4 * 5
-20 / 4
-"hello" + " world"
+x = 10 + 3 * 2    // 16
+y = x / 4          // 4
 ```
 
-### 비교 연산자
-
-모든 비교 연산자는 `1`(참) 또는 `0`(거짓) 반환.
+### Strings
 
 ```
-1 == 1          // 1
-1 != 2          // 1
-3 >= 2          // 1
-1 <= 1          // 1
-"a" == "a"      // 1
-"a" != "b"      // 1
+s = "hello\nworld"     // \n \t \r \\ \" \0 supported
+msg = "Hello, " + name
 ```
 
-- `>=`, `<=`는 숫자만 지원. 문자열에 사용하면 에러 반환.
-- `nil` 비교는 항상 에러. nil 체크는 `.type` 필드 사용.
-- 타입이 다른 값끼리 `==`/`!=` 비교하면 에러 반환 (예: `1 == "1"` → 에러).
-
-### 논리 연산자
-
-`and`, `or`, `not` — 단락 평가. `1`(참) 또는 `0`(거짓) 반환.
+### Comments
 
 ```
-1 > 0 and 2 > 0    // 1
-0 > 1 or 2 > 0     // 1
-not 0               // 1
+// This is a line comment
+# This also works (shell style)
 ```
 
-### 함수 정의
-
-`fn <이름> <매개변수> => <본문>`. 매개변수는 쉼표로 구분.
+### Conditionals
 
 ```
-fn add a, b => a + b
+? x > 5 : print "big" : print "small"
+```
+
+The ternary `? cond : then : else` returns the value of the taken branch.
+
+### Functions
+
+```
 fn square x => x * x
-```
-
-익명(람다) 함수:
-
-```
-fn x => x * 2
-```
-
-### 함수 호출
-
-괄호 또는 공백으로 호출.
-
-```
-add(1, 2)
-add 1, 2
-square 7
-```
-
-### 조건식 (삼항)
-
-`? <조건> : <참> : <거짓>`
-
-```
-x = 5
-? x > 0 : x : 0
-? x > 3 : x * 2 : 0
-```
-
-### 파이프 연산자
-
-`<식> | <함수>` — 왼쪽 값을 오른쪽 함수의 첫 번째 인수로 전달.
-
-```
-fn double x => x * 2
-3 | double
-3 | double | double
-add 1, 2 | double
-```
-
-### each 반복문
-
-`each <항목1>, <항목2>, ... : <함수>` — 모든 항목에 함수 적용, 마지막 결과 반환.
-
-```
-each 1, 2, 3 : fn x => x * 2
-fn triple x => x * 3
-each 10, 20, 30 : triple
-```
-
-### 리스트
-
-순서 있는 컬렉션. `[n]`으로 인덱스 접근 (0부터 시작).
-
-```
-lst = [1, 2, 3]
-lst[0]            // 1
-lst[2]            // 3
-```
-
-범위 초과 접근 시 런타임 에러 반환.
-
-### 딕셔너리
-
-키-값 컬렉션. 키는 문자열(따옴표 생략 가능). `["키"]` 또는 점 표기법으로 접근.
-
-```
-user = {name: "alice", age: 30}
-user["name"]      // "alice"
-user.name         // "alice"  (점 표기법)
-user.age          // 30
-```
-
-없는 키는 `nil` 반환.
-
-### 점 표기법 (필드 접근)
-
-`.필드`는 딕셔너리와 에러 값 모두에서 사용 가능.
-
-```
-d = {x: 10, y: 20}
-d.x               // 10
-
-e = unknown_fn()
-e.type            // "error"
-e.message         // "unknown function: unknown_fn"
-```
-
-### 재귀 함수
-
-함수는 자기 이름으로 자신을 호출할 수 있음.
-
-```
-fn fact n => ? n > 0 : n * fact n-1 : 1
-fact 5            // 120
-```
-
-### 멀티 라인 스크립트
-
-구문은 줄바꿈 또는 `;`으로 구분.
-
-```
 fn add a, b => a + b
-fn double x => x * 2
-result = add 3, 4 | double
-result            // 14
+
+square 9          // 81
+add 3, 4          // 7
 ```
 
----
-
-## 에러 처리
-
-### 에러를 값으로 다루기
-
-런타임 에러는 일급 값. 실패한 호출은 크래시 대신 에러 값을 반환.
+**Inline lambdas:**
 
 ```
-e = unknown_fn()
-e.type            // "error"
-e.message         // "unknown function: unknown_fn"
+double = fn x => x * 2
+double 5          // 10
 ```
 
-에러 여부에 따라 분기:
+### Each (for-each loop)
 
 ```
-result = risky_fn()
-? result.type == "error" : result.message : result
+each 1, 2, 3 : fn x => print x
+each myList  : fn x => print x
 ```
 
-### try/catch/end
-
-변수에 대입하지 않은 단독 표현식의 에러를 잡을 때 사용.
+### While loop
 
 ```
-try
-  unknown_fn()
-catch err
-  print(err.message)
+i = 0
+while i < 5
+  print i
+  i = i + 1
 end
 ```
 
-에러가 없으면 try 본문의 결과가 그대로 반환됨.
+### Pipe operator
+
+```
+"hello world" | upper | trim
+3 | double | double    // 12
+```
+
+### Lists
+
+```
+nums = [1, 2, 3, 4, 5]
+nums[0]               // 1
+len(nums)             // 5
+push(nums, 6)         // [1, 2, 3, 4, 5, 6]
+first(nums)           // 1
+last(nums)            // 5
+pop(nums)             // [1, 2, 3, 4]
+concat(nums, [6, 7])  // [1, 2, 3, 4, 5, 6, 7]
+flat([[1, 2], [3]])   // [1, 2, 3]
+slice(nums, 1, 3)     // [2, 3]
+sort(nums)
+contains(nums, 3)     // 1 (true)
+range(5)              // [0, 1, 2, 3, 4]
+range(2, 6)           // [2, 3, 4, 5]
+```
+
+### Dicts
+
+```
+person = {name: "Alice", age: 30}
+person["name"]           // "Alice"
+person.age               // 30
+keys(person)             // ["name", "age"]
+values(person)           // ["Alice", 30]
+set(person, "age", 31)   // new dict with age updated to 31
+```
+
+### Higher-order functions
+
+```
+doubled = map([1, 2, 3], fn x => x * 2)
+evens   = filter([1, 2, 3, 4], fn x => x % 2 == 0)
+sum     = reduce([1, 2, 3, 4], fn acc x => acc + x, 0)
+```
+
+### Try / Catch
 
 ```
 try
-  42
-catch err
-  0
+  result = model "bad-model-id" "hello"
+  print result
+catch e
+  print "Error: " + e.message
 end
-// → 42
 ```
 
-**주의:** `x = bad_fn()`은 에러를 `x`에 저장하고 계속 실행됨 — catch를 트리거하지 않음. 단독 표현식에서 전파되는 에러만 catch가 잡음.
+### String functions
 
-### 에러 메시지 목록
+```
+split("a,b,c", ",")   // ["a", "b", "c"]
+split("hello world")  // ["hello", "world"]
+join(["a", "b"], "-") // "a-b"
+upper("hello")        // "HELLO"
+lower("HELLO")        // "hello"
+trim("  hi  ")        // "hi"
+```
 
-| 상황 | 메시지 |
-|------|--------|
-| 정의되지 않은 변수 | `undefined variable: foo` |
-| 알 수 없는 함수 | `unknown function: pritn` |
-| 인수 개수 불일치 | `arity mismatch: fn expects 2 args, got 1` |
-| 타입 에러 | `type error: '+' not supported for these types` |
-| 0으로 나누기 | `division by zero` |
-| 인덱스 범위 초과 | `index out of bounds: 5` |
-| 잘못된 인덱스 | `invalid index: must be a non-negative integer` |
-| 파싱 에러 | `parse error: ...` |
+### Type conversion
 
-스크립트 모드(`--run`)에서 처리되지 않은 에러는 stderr에 `Runtime Error: <메시지>`를 출력하고 종료 코드 1로 종료.
+```
+str(42)        // "42"
+num("3.14")    // 3.14
+type(42)       // "number"
+type([])       // "list"
+is_nil(nil)    // 1
+```
+
+### Nil
+
+Missing dict keys return `nil`. You can test for it:
+
+```
+d = {x: 1}
+is_nil(d["y"])       // 1
+d["y"] == nil        // 1  (nil == nil is true)
+d["y"] == d["x"]     // 0  (nil != number)
+```
+
+### Math
+
+```
+floor(3.7)   // 3
+ceil(3.2)    // 4
+round(3.5)   // 4
+abs(-5)      // 5
+min(3, 7)    // 3
+max(3, 7)    // 7
+```
+
+### File I/O
+
+```
+content = read_file("data.txt")
+write_file("out.txt", "hello\n")
+append_file("log.txt", "new line\n")
+```
+
+### HTTP and JSON
+
+```
+resp = http_get("https://api.example.com/data")
+data = json_parse(resp)
+print data["key"]
+
+json_str({name: "Alice", score: 99})  // '{"name":"Alice","score":99}'
+```
+
+### Process
+
+```
+sleep(500)   // wait 500 ms
+exit(0)      // exit with code 0
+```
+
+### I/O
+
+```
+name = input("Enter your name: ")
+print "Hello, " name     // multi-arg print joins with space
+```
+
+### Environment variables
+
+```
+key = env("ANTHROPIC_API_KEY")
+```
+
+### CLI arguments
+
+Extra arguments passed after the script path are available as the `args` list:
+
+```bash
+c-dsl --run script.dsl foo bar
+```
+
+```
+// script.dsl
+print first(args)   // "foo"
+print args[1]       // "bar"
+```
+
+### Eval
+
+```
+code = "1 + 2"
+result = eval(code)   // 3
+```
 
 ---
 
-## 내장 함수
+## Practical Examples
 
-### `print`
-
-값을 stdout에 출력하고 그대로 반환.
+### Summarize a list of topics
 
 ```
-print 42
-print "hello"
-add 1, 2 | print
+topics = ["Rust ownership", "monads", "Fourier transform"]
+each topics : fn topic =>
+  summary = model "claude-haiku-4-5-20251001" "Explain in one sentence: " + topic
+  print topic + " → " + summary
+end
 ```
 
-### `eval`
-
-현재 스코프에서 C-DSL 표현식 문자열을 평가.
+### Generate and run code
 
 ```
-eval "2 + 3"
-x = 10
-eval "x * 3"     // 30
+code = model "claude-opus-4-8" "Write a C-DSL expression for the sum of 1+2+3+4+5" "code"
+result = eval(code)
+print "Result: " + str(result)
 ```
 
-### `model`
-
-응답 캐싱 옵션과 함께 언어 모델을 호출.
+### Classify items
 
 ```
-model "model-id" "prompt"
-model "model-id" "prompt" "code"
-model "model-id" "prompt" "code" "true"
+items = ["apple", "carrot", "banana", "broccoli"]
+fn classify item =>
+  model "claude-haiku-4-5-20251001" "Reply with only 'fruit' or 'vegetable': " + item
+
+fruits = filter(items, fn x => classify(x) == "fruit")
+print join(fruits, ", ")
 ```
 
-| 위치 | 값 | 설명 |
-|------|----|------|
-| 1 | `"model-id"` | 모델 식별자 |
-| 2 | `"prompt"` | 입력 프롬프트 |
-| 3 (선택) | `"code"` | 일반 텍스트 대신 C-DSL 표현식 반환 |
-| 4 (선택) | `"true"` | 캐시 무시 (강제 재실행) |
-
-응답은 모델 ID, 프롬프트, 포맷으로 만든 SHA-256 키로 `~/.c-dsl/cache/`에 캐싱됨.
-
-`eval`과 조합:
+### Read → process → write pipeline
 
 ```
-result = eval(model "codegen-model" "표현식 작성" "code")
+raw = read_file("input.txt")
+lines = split(raw, "\n")
+processed = map(lines, fn line =>
+  model "claude-haiku-4-5-20251001" "Fix grammar: " + line
+)
+write_file("output.txt", join(processed, "\n"))
+```
+
+### Retry with error handling
+
+```
+fn ask prompt =>
+  try
+    model "claude-sonnet-4-6" prompt
+  catch e
+    "Error: " + e.message
+  end
+
+result = ask "What is 2+2?"
+print result
 ```
 
 ---
 
-## 테스트 실행
+## Running Tests
 
 ```bash
 cargo test

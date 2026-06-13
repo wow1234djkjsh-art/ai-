@@ -54,6 +54,13 @@ pub enum Expr {
         catch_var: String,
         handler: Box<Expr>,
     },
+    While {
+        cond: Box<Expr>,
+        body: Box<Expr>,
+    },
+    Return(Option<Box<Expr>>),
+    Break,
+    Continue,
 }
 
 struct Parser<'a> {
@@ -130,6 +137,10 @@ impl<'a> Parser<'a> {
             Token::Each => self.parse_each(),
             Token::Sym('?') => self.parse_if(),
             Token::Try => self.parse_try_catch(),
+            Token::While => self.parse_while(),
+            Token::Return => self.parse_return(),
+            Token::Break => { self.advance(); Ok(Expr::Break) }
+            Token::Continue => { self.advance(); Ok(Expr::Continue) }
             Token::Ident(name) => {
                 if self.tokens.get(self.pos + 1) == Some(&Token::Sym('=')) {
                     self.advance(); // Ident
@@ -163,6 +174,7 @@ impl<'a> Parser<'a> {
         };
         let params = self.parse_params()?;
         self.eat_arrow()?;
+        while matches!(self.peek(), Token::Sep) { self.advance(); }
         let body = self.parse_expr()?;
         Ok(Expr::FnDef {
             name,
@@ -175,6 +187,7 @@ impl<'a> Parser<'a> {
         self.advance(); // Fn
         let params = self.parse_params()?;
         self.eat_arrow()?;
+        while matches!(self.peek(), Token::Sep) { self.advance(); }
         let body = self.parse_expr()?;
         Ok(Expr::Lambda {
             params,
@@ -268,6 +281,39 @@ impl<'a> Parser<'a> {
             body: Box::new(Expr::Block(body_stmts)),
             catch_var,
             handler: Box::new(Expr::Block(handler_stmts)),
+        })
+    }
+
+    fn parse_return(&mut self) -> Result<Expr, String> {
+        self.advance(); // consume 'return'
+        if matches!(self.peek(), Token::Sep | Token::Eof | Token::End | Token::Catch) {
+            Ok(Expr::Return(None))
+        } else {
+            let val = self.parse_expr()?;
+            Ok(Expr::Return(Some(Box::new(val))))
+        }
+    }
+
+    fn parse_while(&mut self) -> Result<Expr, String> {
+        self.advance(); // consume 'while'
+        let cond = self.parse_or()?;
+        while matches!(self.peek(), Token::Sep) {
+            self.advance();
+        }
+        let mut body_stmts = Vec::new();
+        while !matches!(self.peek(), Token::End | Token::Eof) {
+            body_stmts.push(self.parse_stmt()?);
+            while matches!(self.peek(), Token::Sep) {
+                self.advance();
+            }
+        }
+        if !matches!(self.peek(), Token::End) {
+            return Err("expected 'end' after while body".into());
+        }
+        self.advance(); // consume 'end'
+        Ok(Expr::While {
+            cond: Box::new(cond),
+            body: Box::new(Expr::Block(body_stmts)),
         })
     }
 
@@ -368,13 +414,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_mul(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_unary()?;
-        while let Token::Sym(op) = self.peek().clone() {
-            if op != '*' && op != '/' {
-                break;
-            }
+        let mut left = self.parse_power()?;
+        loop {
+            let op = match self.peek() {
+                Token::Sym('*') => "*",
+                Token::Sym('/') => "/",
+                Token::Sym('%') => "%",
+                _ => break,
+            };
             self.advance();
-            let right = self.parse_unary()?;
+            let right = self.parse_power()?;
             left = Expr::BinOp {
                 op: op.to_string(),
                 left: Box::new(left),
@@ -382,6 +431,21 @@ impl<'a> Parser<'a> {
             };
         }
         Ok(left)
+    }
+
+    fn parse_power(&mut self) -> Result<Expr, String> {
+        let base = self.parse_unary()?;
+        if self.peek() == &Token::Pow {
+            self.advance();
+            let exp = self.parse_power()?; // right-associative
+            Ok(Expr::BinOp {
+                op: "**".to_string(),
+                left: Box::new(base),
+                right: Box::new(exp),
+            })
+        } else {
+            Ok(base)
+        }
     }
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
@@ -447,6 +511,7 @@ impl<'a> Parser<'a> {
         match self.peek().clone() {
             Token::Number(n) => { self.advance(); self.apply_subscript(Expr::Number(n)) }
             Token::Str(s)    => { self.advance(); self.apply_subscript(Expr::Str(s)) }
+            Token::Fn        => { let e = self.parse_lambda()?; self.apply_subscript(e) }
             Token::Sym('(')  => {
                 self.advance();
                 let e = self.parse_pipe()?;
@@ -472,6 +537,17 @@ impl<'a> Parser<'a> {
                     self.apply_subscript(Expr::Ident(name))
                 }
             }
+            Token::Return => {
+                self.advance();
+                if matches!(self.peek(), Token::Sep | Token::Eof | Token::End | Token::Catch | Token::Sym(':')) {
+                    Ok(Expr::Return(None))
+                } else {
+                    let e = self.parse_expr()?;
+                    Ok(Expr::Return(Some(Box::new(e))))
+                }
+            }
+            Token::Break    => { self.advance(); Ok(Expr::Break) }
+            Token::Continue => { self.advance(); Ok(Expr::Continue) }
             tok => Err(format!("unexpected token {:?}", tok)),
         }
     }
@@ -480,7 +556,7 @@ impl<'a> Parser<'a> {
         matches!(
             self.peek(),
             Token::Number(_) | Token::Str(_) | Token::Ident(_)
-                | Token::Sym('{')
+                | Token::Sym('{') | Token::Fn
         ) || (matches!(self.peek(), Token::Sym('[')) && self.peek_has_space())
     }
 
@@ -519,11 +595,21 @@ impl<'a> Parser<'a> {
                 if !self.is_value_start() {
                     break;
                 }
+            } else if self.is_literal_start() {
+                // Adjacent literal tokens (str/number/{) are additional args without comma.
+                // Idents are NOT included here: they trigger sub-calls via is_value_start.
             } else {
                 break;
             }
         }
         Ok(args)
+    }
+
+    fn is_literal_start(&self) -> bool {
+        matches!(
+            self.peek(),
+            Token::Str(_) | Token::Number(_) | Token::Sym('{') | Token::Fn
+        ) || (matches!(self.peek(), Token::Sym('[')) && self.peek_has_space())
     }
 }
 
